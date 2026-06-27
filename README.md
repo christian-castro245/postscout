@@ -157,3 +157,6 @@ Der Claude API Key wird ausschließlich in `/api/analyze` (serverseitig) verwend
 | Anthropic | – | ~$0.003 pro Brief |
 
 Für den Familien-MVP: **komplett kostenlos**.
+
+
+
