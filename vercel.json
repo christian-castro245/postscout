@@ -5,6 +5,10 @@
   "installCommand": "npm install",
   "crons": [
     {
+      "path": "/api/imap-sync",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/reminder-send",
       "schedule": "0 * * * *"
     }
