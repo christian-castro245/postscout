@@ -28,7 +28,9 @@ export default async function handler(req, res) {
 Aufgabe: ${aufgabe || 'Antwort erforderlich'}
 Empfänger/Absender: ${absender || 'Unbekannt'}
 Betreff: ${betreff || ''}
-${dokZusammenfassung ? `\nZusammenfassung des Dokuments:\n${dokZusammenfassung}` : ''}
+${dokZusammenfassung ? `
+Zusammenfassung des Dokuments:
+${dokZusammenfassung}` : ''}
 
 Schreibe einen höflichen, klaren Antwortbrief auf Deutsch. 
 - Beginne mit "Sehr geehrte Damen und Herren," (oder passend zum Absender)
