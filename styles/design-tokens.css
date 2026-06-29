@@ -1,0 +1,62 @@
+/* PostScout — Design Tokens v1.0
+   Petrol-Identität · warmes Off-White + Weiß · Orange als Signal · Figtree
+   Direkt in :root einbindbar (CSS Custom Properties). */
+
+:root {
+  /* ─── Marke / Primär ─── */
+  --ps-petrol:          #1F3A52;  /* Header, primäre Buttons, aktive Icons */
+  --ps-petrol-pressed:  #16304A;  /* gedrückter Zustand */
+  --ps-petrol-tint:     #EAF0F4;  /* Icon-Chips, tonale Flächen */
+  --ps-petrol-tint-bd:  #BBD0DE;  /* Rahmen auf Tint */
+
+  /* ─── Neutrale (warm) ─── */
+  --ps-bg:        #FBFAF8;  /* Seiten-Hintergrund (Off-White) */
+  --ps-surface:   #FFFFFF;  /* Karten, Bottom-Nav */
+  --ps-subtle:    #F4F2EC;  /* gefüllte Felder, Flächen */
+  --ps-ink:       #1A1712;  /* Primärtext / Tinte */
+  --ps-muted:     #7C786E;  /* Sekundärtext */
+  --ps-faint:     #9A968B;  /* Meta, Hinweise, Platzhalter */
+  --ps-border:    #E0DDD3;  /* Rahmen (Inputs, Buttons) */
+  --ps-hairline:  #EFEDE6;  /* Trennlinien, Karten-Rahmen */
+
+  /* ─── Signal / Status ─── */
+  --ps-signal:        #F97316;  /* Orange — NUR Fristen & Dringendes */
+  --ps-overdue:       #B3402C;  --ps-overdue-bg:   #FBEAE7;
+  --ps-urgent:        #C2410C;  --ps-urgent-bg:    #FBF0E8;
+  --ps-medium:        #8A5A12;  --ps-medium-bg:    #FBF4E6;
+  --ps-done:          #2E7D46;  --ps-done-bg:      #E9F0E9;
+  --ps-inprogress:    #1F3A52;  --ps-inprogress-bg:#EAF0F4;
+
+  /* ─── Kategorie-Tints (Icon-Quadrate) ─── */
+  --ps-cat-tax-bg:     #FBF0DC;  --ps-cat-tax:     #8A5A12;
+  --ps-cat-gov-bg:     #E8EEF4;  --ps-cat-gov:     #345A7A;
+  --ps-cat-bank-bg:    #E6F0E9;  --ps-cat-bank:    #2E5A3C;
+  --ps-cat-health-bg:  #F7E9E9;  --ps-cat-health:  #8A3A3A;
+
+  /* ─── Typografie ─── */
+  --ps-font: "Figtree", system-ui, -apple-system, sans-serif;
+  --ps-fs-display: 54px;  --ps-fw-display: 800;  /* Hero-Kennzahl */
+  --ps-fs-title:   32px;  --ps-fw-title:   700;  /* Login, große Titel */
+  --ps-fs-heading: 27px;  --ps-fw-heading: 700;  /* Begrüßung */
+  --ps-fs-section: 18px;  --ps-fw-section: 700;  /* Header, Kartentitel */
+  --ps-fs-body:    15px;  --ps-fw-body:    500;  /* Fließtext */
+  --ps-fs-caption: 13px;  --ps-fw-caption: 500;  /* Meta, Datum */
+  --ps-fs-overline:11px;  --ps-fw-overline:700;  /* Labels, +0.1em uppercase */
+
+  /* ─── Radien ─── */
+  --ps-r-chip:   11px;
+  --ps-r-button: 14px;
+  --ps-r-card:   16px;
+  --ps-r-sheet:  30px;   /* Bottom-Sheet / Hero-Unterkante */
+  --ps-r-pill:   20px;
+
+  /* ─── Abstände (4er-Skala) ─── */
+  --ps-s-1: 4px;  --ps-s-2: 8px;  --ps-s-3: 12px;
+  --ps-s-4: 16px; --ps-s-5: 20px; --ps-s-6: 24px;
+  --ps-pad-page: 24px;   /* Seitenrand */
+  --ps-pad-card: 16px;   /* Karten-Innenabstand */
+
+  /* ─── Icons ─── */
+  --ps-icon-stroke: 1.6;        /* aktiv: 1.7 */
+  /* Stil: Lucide outline, runde Enden/Ecken, keine Füllung, keine Emoji */
+}
