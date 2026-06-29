@@ -343,10 +343,8 @@ export default function Profil() {
                   <Field label="PLZ" value={plz} onChange={setPlz} autoComplete="postal-code" inputMode="numeric" placeholder="12345"/>
                   <Field label="Ort" value={ort} onChange={setOrt} autoComplete="address-level2" placeholder="Berlin"/>
                 </Row>
-                <Row>
-                  <Field label="Geburtsdatum" type="date" value={geburtsdatum} onChange={setGeburtsdatum} autoComplete="bday"/>
-                  <Field label="Telefon" type="tel" value={telefon} onChange={v => handleTel(v, setTelefon)} autoComplete="tel" inputMode="tel" placeholder="+49 151 …"/>
-                </Row>
+                <Field label="Geburtsdatum" type="date" value={geburtsdatum} onChange={setGeburtsdatum} autoComplete="bday"/>
+                <Field label="Telefon" type="tel" value={telefon} onChange={v => handleTel(v, setTelefon)} autoComplete="tel" inputMode="tel" placeholder="+49 151 …"/>
                 <Field label="Steuer-ID" value={steuerId} onChange={setSteuerId} inputMode="numeric" placeholder="11-stellige Steuer-ID"/>
                 <PrimaryBtn onClick={saveProfil} loading={saving} icon={<SaveIcon/>}>Speichern</PrimaryBtn>
               </Card>
