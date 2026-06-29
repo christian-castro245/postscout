@@ -70,7 +70,10 @@ Falls kein Datum erkennbar → null. NIEMALS leere Strings oder unformatierte Da
       ...imageBlocks,
       {
         type: 'text',
-        text: `Analysiere dieses Dokument vollständig und gib das JSON zurück.${dok.raw_text ? `\n\nExtrahierter Text:\n${dok.raw_text}` : ''}`,
+        text: `Analysiere dieses Dokument vollständig und gib das JSON zurück.${dok.raw_text ? `
+
+Extrahierter Text:
+${dok.raw_text}` : ''}`,
       },
     ];
 
@@ -90,7 +93,8 @@ Falls kein Datum erkennbar → null. NIEMALS leere Strings oder unformatierte Da
   // Parse JSON safely
   let parsed = {};
   try {
-    const cleaned = analysisText.replace(/```json\n?|```/g, '').trim();
+    const cleaned = analysisText.replace(/```json
+?|```/g, '').trim();
     parsed = JSON.parse(cleaned);
   } catch {
     console.error('JSON parse error:', analysisText.slice(0, 200));
