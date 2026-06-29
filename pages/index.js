@@ -70,6 +70,12 @@ export default function Home() {
   const [myPermission, setMyPermission] = useState('notizen')
   const [anschreiben, setAnschreiben]   = useState(null)
   const [anschreibenDoc, setAnschreibenDoc] = useState(null)
+  const [duplikatWarnung, setDuplikatWarnung] = useState(null)
+  const [selectedDoc, setSelectedDoc]   = useState(null) // for detail modal
+  const [neueNotiz, setNeueNotiz]       = useState('')
+  const [notizSaving, setNotizSaving]   = useState(false)
+  const [docReminder, setDocReminder]   = useState('') // date string
+  const [kontakte, setKontakte]         = useState([])
   const fileRef = useRef()
   const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
 
@@ -94,6 +100,7 @@ export default function Home() {
       loadAll(session.user.id)
       loadFamilyMembers(session.user.id)
       loadReminderSettings(session.user.id)
+      loadKontakte(session.user.id)
     }
   }
 
@@ -170,19 +177,29 @@ export default function Home() {
 
   async function analyzeDoc() {
     if (!photos.length) return
-    setAnalyzing(true); setScanMsg(null)
+    setAnalyzing(true); setScanMsg(null); setDuplikatWarnung(null)
     try {
+      const uid = session.user.id
       const contentParts = photos.map(p => p.mimeType.startsWith('image/')
         ? { type:'image', source:{ type:'base64', media_type:p.mimeType, data:p.base64 } }
         : { type:'document', source:{ type:'base64', media_type:'application/pdf', data:p.base64 } }
       )
       contentParts.push({ type:'text', text: photos.length>1?`Analysiere diese ${photos.length} Seiten als ein Dokument.`:'Analysiere diesen Brief.' })
       const res = await fetch('/api/analyze', {
-        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ contentParts }),
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ contentParts, userId: uid }),
       })
       if (!res.ok) { const e = await res.json(); throw new Error(e.error||'Fehler') }
       const r = await res.json()
-      const uid = session.user.id; const ts = Date.now(); const storagePaths = []
+
+      // Duplikat gefunden?
+      if (r.duplikat) {
+        setDuplikatWarnung(r.duplikat)
+        setAnalyzing(false)
+        return // Nicht speichern – User entscheidet
+      }
+
+      const ts = Date.now(); const storagePaths = []
       for (let i = 0; i < photos.length; i++) {
         const p = photos[i]; const path = `${uid}/${ts}_${i}_${p.file.name}`
         const { error: se } = await supabase.storage.from('dokumente').upload(path, p.file, { contentType:p.mimeType })
@@ -195,8 +212,10 @@ export default function Home() {
         kategorie:r.kategorie, absender:r.absender, zusammenfassung:r.zusammenfassung,
         dringlichkeit:r.dringlichkeit, frist:parseFrist(r.frist),
         betrag:r.betrag, steuerrelevant:r.steuerrelevant, jahr:new Date().getFullYear(),
-        todos:(r.todos||[]).map(t=>({...t, dringlichkeit:t.dringlichkeit||r.dringlichkeit})),
+        todos:(r.todos||[]).map(t=>({...t, dringlichkeit:t.dringlichkeit||r.dringlichkeit, status:'offen'})),
         empfehlungen:r.empfehlungen||[], quelle:'scan', anhaenge:[],
+        inhalts_hash: r.inhaltsHash || null,
+        notizen: [],
       })
       if (dbErr) throw new Error('DB: '+dbErr.message)
       if (r.mailAntwortErforderlich && r.mailVorlage) setMailDraft(r.mailVorlage)
@@ -210,14 +229,36 @@ export default function Home() {
     const parts = frist.split('.'); if (parts.length===3) return `${parts[2]}-${parts[1]}-${parts[0]}`; return null
   }
 
-  async function toggleTodo(docId, todoIdx) {
+  // Todo Status: offen → in_bearbeitung → wartet → erledigt → offen
+  const TODO_STATUS = {
+    offen:          { label:'Offen',             next:'in_bearbeitung', color:'#D1D5DB', bg:'transparent' },
+    in_bearbeitung: { label:'In Bearbeitung',    next:'wartet',         color:'#F59E0B', bg:'#FFFBEB' },
+    wartet:         { label:'Warte auf Antwort', next:'erledigt',       color:'#3B82F6', bg:'#EFF6FF' },
+    erledigt:       { label:'Erledigt',          next:'offen',          color:'#15803D', bg:'#F0FDF4' },
+  }
+
+  async function cycleTodoStatus(docId, todoIdx) {
     const canEdit = !ownerView || myPermission==='abhaken' || myPermission==='notizen'
     if (!canEdit) return
     const userId = ownerView ? ownerView.ownerId : session.user.id
     const doc = docs.find(d => d.id===docId); if (!doc) return
-    const newTodos = doc.todos.map((t,i) => i===todoIdx ? {...t, erledigt:!t.erledigt} : t)
-    await supabase.from('dokumente').update({ todos:newTodos }).eq('id', docId)
+    const todo = doc.todos[todoIdx]
+    const currentStatus = todo.status || (todo.erledigt ? 'erledigt' : 'offen')
+    const nextStatus = TODO_STATUS[currentStatus]?.next || 'offen'
+    const autorName = session.user.email.split('@')[0]
+    const newTodos = doc.todos.map((t, i) => i===todoIdx ? {
+      ...t,
+      status: nextStatus,
+      erledigt: nextStatus === 'erledigt',
+      erledigt_am: nextStatus === 'erledigt' ? new Date().toISOString() : null,
+      erledigt_von: nextStatus === 'erledigt' ? autorName : null,
+    } : t)
+    await supabase.from('dokumente').update({ todos: newTodos }).eq('id', docId)
     loadDocsForUser(userId)
+  }
+
+  async function toggleTodo(docId, todoIdx) {
+    return cycleTodoStatus(docId, todoIdx)
   }
 
   function openMail(draft) {
@@ -285,12 +326,46 @@ export default function Home() {
     setTimeout(() => setReminderMsg(null), 3000)
   }
 
+  async function loadKontakte(uid) {
+    const { data } = await supabase.from('kontakte').select('*')
+      .eq('user_id', uid).order('name')
+    setKontakte(data || [])
+  }
+
+  async function addNotiz() {
+    if (!neueNotiz.trim() || !selectedDoc) return
+    setNotizSaving(true)
+    const autorName = session.user.email.split('@')[0]
+    await fetch('/api/notiz', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ dokument_id:selectedDoc.id, text:neueNotiz.trim(), autor:autorName, user_id:session.user.id }),
+    })
+    setNeueNotiz('')
+    // Reload doc
+    const { data } = await supabase.from('dokumente').select('*').eq('id', selectedDoc.id).single()
+    if (data) setSelectedDoc(data)
+    await loadAll()
+    setNotizSaving(false)
+  }
+
+  async function saveDocReminder(docId, datum) {
+    if (!datum) return
+    await supabase.from('dokument_reminder').insert({
+      dokument_id: docId,
+      user_id: session.user.id,
+      erinnerung_am: datum,
+      text: `Erinnerung für Dokument`,
+      gesendet: false,
+    })
+    setDocReminder('')
+  }
+
   async function genAnschreiben(doc) {
     setAnschreibenDoc(doc); setAnschreiben({ loading:true })
     const { data: profil } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
     const res = await fetch('/api/anschreiben', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ dokument:doc, profil }),
+      body:JSON.stringify({ dokument:doc, profil, kontakte }),
     })
     const data = await res.json()
     setAnschreiben(res.ok ? data : { error:data.error })
@@ -523,24 +598,35 @@ export default function Home() {
                               <div style={{width:7,height:7,borderRadius:'50%',background:d.dot,flexShrink:0}}/>
                               {d.label}
                             </div>
-                            {[...group.filter(t=>!t.erledigt),...group.filter(t=>t.erledigt)].map((t,i)=>(
-                              <div key={i} className={`todo-card ${t.erledigt?'todo-card-done':''}`}>
-                                <button className={`todo-check ${t.erledigt?'todo-check-done':''}`}
-                                  onClick={()=>toggleTodo(t.docId,t.todoIdx)}
-                                  disabled={!canEdit} style={!canEdit?{opacity:0.4,cursor:'not-allowed'}:{}}>
-                                  {t.erledigt&&'✓'}
+                            {[...group.filter(t=>t.status!=='erledigt'&&!t.erledigt),...group.filter(t=>t.status==='erledigt'||t.erledigt)].map((t,i)=>{
+                              const status = t.status || (t.erledigt?'erledigt':'offen')
+                              const s = TODO_STATUS[status] || TODO_STATUS.offen
+                              return (
+                              <div key={i} className={`todo-card ${status==='erledigt'?'todo-card-done':''}`}>
+                                <button
+                                  title={`Status: ${s.label} → Klick für nächsten Status`}
+                                  onClick={()=>cycleTodoStatus(t.docId,t.todoIdx)}
+                                  disabled={!canEdit}
+                                  style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${s.color}`,flexShrink:0,marginTop:1,cursor:canEdit?'pointer':'not-allowed',
+                                    background:s.bg,fontSize:11,color:s.color,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'inherit',
+                                    opacity:!canEdit?0.4:1}}>
+                                  {status==='erledigt'?'✓':status==='in_bearbeitung'?'↻':status==='wartet'?'…':''}
                                 </button>
                                 <div style={{flex:1,minWidth:0}}>
-                                  <div style={{fontSize:14,color:'#0A1628',lineHeight:1.4,marginBottom:4,textDecoration:t.erledigt?'line-through':'none',opacity:t.erledigt?0.5:1}}>{t.aufgabe}</div>
+                                  <div style={{fontSize:14,color:'#0A1628',lineHeight:1.4,marginBottom:4,
+                                    textDecoration:status==='erledigt'?'line-through':'none',opacity:status==='erledigt'?0.5:1}}>{t.aufgabe}</div>
                                   <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
                                     <span style={{fontSize:11,color:'#6B7280'}}>{t.catIco} {t.docName}</span>
                                     {t.frist&&<span style={{fontSize:11,fontWeight:600,color:dring==='ueberfaellig'?'#B91C1C':dring==='hoch'?'#C2410C':'#B45309'}}>
                                       {dring==='ueberfaellig'?'⚠ Überfällig: ':'📅 '}{new Date(t.frist+'T00:00:00').toLocaleDateString('de-DE')}
                                     </span>}
+                                    {status!=='offen'&&<span style={{fontSize:10,padding:'2px 7px',borderRadius:20,background:s.bg,color:s.color,fontWeight:600,border:`1px solid ${s.color}20`}}>{s.label}</span>}
+                                    {t.erledigt_von&&<span style={{fontSize:10,color:'#6B7280'}}>von {t.erledigt_von}</span>}
                                   </div>
                                 </div>
                               </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         )
                       })}
@@ -581,6 +667,19 @@ export default function Home() {
                       </button>
                     </div>
                   )}
+                  {duplikatWarnung && (
+                    <div style={{background:'#FFFBEB',border:'1.5px solid #FDE68A',borderRadius:12,padding:14,marginBottom:10}}>
+                      <div style={{fontSize:14,fontWeight:700,color:'#B45309',marginBottom:6}}>⚠ Mögliches Duplikat</div>
+                      <div style={{fontSize:13,color:'#92400E',marginBottom:10,lineHeight:1.5}}>
+                        Dieses Dokument wurde möglicherweise bereits am {new Date(duplikatWarnung.erstellt_am).toLocaleDateString('de-DE')} gespeichert:<br/>
+                        <strong>{duplikatWarnung.absender}</strong>
+                      </div>
+                      <div style={{display:'flex',gap:8}}>
+                        <button className="btn-secondary" style={{flex:1,fontSize:13}} onClick={()=>setDuplikatWarnung(null)}>Trotzdem speichern</button>
+                        <button className="btn-primary" style={{flex:1,fontSize:13}} onClick={()=>{setDuplikatWarnung(null);setPhotos([])}}>Abbrechen</button>
+                      </div>
+                    </div>
+                  )}
                   {scanMsg&&<div className={`msg ${scanMsg.err?'msg-err':'msg-ok'}`}>{scanMsg.text}</div>}
                   <button className="btn-primary btn-full" onClick={analyzeDoc} disabled={!photos.length||analyzing} style={{marginTop:4}}>
                     {analyzing?'Wird analysiert…':'✨ Brief analysieren'}
@@ -607,7 +706,7 @@ export default function Home() {
                     : filteredDocs.map(d=>{
                       const cat=CATS[d.kategorie]||CATS['Sonstiges']; const dr=DRING[d.dringlichkeit]||DRING.niedrig
                       return (
-                        <div key={d.id} className="card" style={{padding:14,marginBottom:10}}>
+                        <div key={d.id} className="card" style={{padding:14,marginBottom:10,cursor:'pointer'}} onClick={()=>setSelectedDoc(d)}>
                           <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:d.zusammenfassung?10:0}}>
                             <div style={{width:36,height:36,borderRadius:9,background:cat.bg,color:cat.text,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{cat.ico}</div>
                             <div style={{flex:1,minWidth:0}}>
@@ -760,6 +859,102 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        {/* ── DOK DETAIL MODAL ── */}
+        {selectedDoc && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:200,display:'flex',alignItems:'flex-end'}}>
+            <div style={{background:'#F4F6FA',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:460,margin:'0 auto',maxHeight:'90vh',overflowY:'auto'}}>
+              {/* Header */}
+              <div style={{background:'#0A1628',borderRadius:'20px 20px 0 0',padding:'16px 16px 14px',display:'flex',alignItems:'center',gap:10}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:15,fontWeight:700,color:'#fff'}}>{selectedDoc.absender||selectedDoc.dateiname}</div>
+                  <div style={{fontSize:11,color:'rgba(255,255,255,0.5)',marginTop:2}}>{selectedDoc.kategorie} · {new Date(selectedDoc.erstellt_am).toLocaleDateString('de-DE')}</div>
+                </div>
+                <button onClick={()=>setSelectedDoc(null)} style={{background:'rgba(255,255,255,0.12)',border:'none',cursor:'pointer',borderRadius:'50%',width:30,height:30,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,color:'#fff'}}>✕</button>
+              </div>
+
+              <div style={{padding:'14px 16px 2rem'}}>
+                {/* Zusammenfassung */}
+                {selectedDoc.zusammenfassung && (
+                  <div className="card" style={{padding:14,marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:700,color:'#6B7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:6}}>Zusammenfassung</div>
+                    <p style={{fontSize:14,color:'#1F2937',lineHeight:1.6}}>{selectedDoc.zusammenfassung}</p>
+                  </div>
+                )}
+
+                {/* Todos mit Status */}
+                {selectedDoc.todos?.length > 0 && (
+                  <div className="card" style={{padding:14,marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:700,color:'#6B7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>Aufgaben</div>
+                    {selectedDoc.todos.map((t, i) => {
+                      const status = t.status || (t.erledigt?'erledigt':'offen')
+                      const s = TODO_STATUS[status] || TODO_STATUS.offen
+                      return (
+                        <div key={i} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'8px 0',borderBottom:'1px solid #F3F4F6'}}>
+                          <button onClick={()=>cycleTodoStatus(selectedDoc.id, i)}
+                            style={{width:22,height:22,borderRadius:'50%',border:`2px solid ${s.color}`,flexShrink:0,marginTop:1,cursor:'pointer',
+                              background:s.bg,fontSize:11,color:s.color,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'inherit'}}>
+                            {status==='erledigt'?'✓':status==='in_bearbeitung'?'↻':status==='wartet'?'…':''}
+                          </button>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:13,color:'#0A1628',textDecoration:status==='erledigt'?'line-through':'none',opacity:status==='erledigt'?0.5:1}}>{t.aufgabe}</div>
+                            <div style={{display:'flex',gap:6,marginTop:3,flexWrap:'wrap'}}>
+                              <span style={{fontSize:10,padding:'2px 7px',borderRadius:20,background:s.bg,color:s.color,fontWeight:600}}>{s.label}</span>
+                              {t.frist&&<span style={{fontSize:10,color:'#B45309'}}>📅 {new Date(t.frist+'T00:00:00').toLocaleDateString('de-DE')}</span>}
+                              {t.erledigt_von&&<span style={{fontSize:10,color:'#6B7280'}}>✓ {t.erledigt_von}</span>}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* Dokument-Reminder */}
+                <div className="card" style={{padding:14,marginBottom:10}}>
+                  <div style={{fontSize:12,fontWeight:700,color:'#6B7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>🔔 Erinnerung setzen</div>
+                  <div style={{display:'flex',gap:8}}>
+                    <input type="date" value={docReminder} onChange={e=>setDocReminder(e.target.value)} min={new Date().toISOString().split('T')[0]}
+                      style={{flex:1,padding:'9px 12px',borderRadius:9,border:'1.5px solid #E5E7EB',background:'#fff',color:'#0A1628',fontSize:14,fontFamily:'inherit'}}/>
+                    <button className="btn-primary" onClick={()=>saveDocReminder(selectedDoc.id, docReminder)} disabled={!docReminder} style={{padding:'9px 14px',fontSize:13}}>
+                      Setzen
+                    </button>
+                  </div>
+                </div>
+
+                {/* Notizen */}
+                <div className="card" style={{padding:14,marginBottom:10}}>
+                  <div style={{fontSize:12,fontWeight:700,color:'#6B7280',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>Notizen</div>
+                  {(selectedDoc.notizen||[]).length===0 && (
+                    <div style={{fontSize:13,color:'#9CA3AF',marginBottom:10}}>Noch keine Notizen.</div>
+                  )}
+                  {(selectedDoc.notizen||[]).map((n,i)=>(
+                    <div key={i} style={{padding:'8px 0',borderBottom:'1px solid #F3F4F6'}}>
+                      <div style={{fontSize:13,color:'#1F2937',lineHeight:1.5}}>{n.text}</div>
+                      <div style={{fontSize:11,color:'#6B7280',marginTop:3}}>{n.autor} · {new Date(n.erstellt_am).toLocaleDateString('de-DE')}</div>
+                    </div>
+                  ))}
+                  <div style={{display:'flex',gap:8,marginTop:10}}>
+                    <input type="text" value={neueNotiz} onChange={e=>setNeueNotiz(e.target.value)}
+                      onKeyDown={e=>e.key==='Enter'&&addNotiz()}
+                      placeholder="Notiz hinzufügen…"
+                      style={{flex:1,padding:'9px 12px',borderRadius:9,border:'1.5px solid #E5E7EB',background:'#fff',color:'#0A1628',fontSize:14,fontFamily:'inherit'}}/>
+                    <button className="btn-primary" onClick={addNotiz} disabled={!neueNotiz.trim()||notizSaving} style={{padding:'9px 14px',fontSize:13}}>
+                      {notizSaving?'…':'✓'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Aktionen */}
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  <button className="btn-secondary" style={{flex:1,fontSize:13}} onClick={()=>downloadDoc(selectedDoc.storage_path,selectedDoc.dateiname)}>⬇ Laden</button>
+                  <button className="btn-secondary" style={{flex:1,fontSize:13,color:'#1E3A8A',borderColor:'#BFDBFE'}} onClick={()=>{setSelectedDoc(null);genAnschreiben(selectedDoc)}}>✉ Anschreiben</button>
+                  <button className="btn-secondary btn-danger" style={{fontSize:13}} onClick={()=>{setSelectedDoc(null);deleteDoc(selectedDoc.id,selectedDoc.storage_path)}}>🗑</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── ANSCHREIBEN MODAL ── */}
         {anschreiben && (

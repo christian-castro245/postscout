@@ -58,6 +58,7 @@ export default function Profil() {
         loadProfil(session.user.id)
         loadMieter(session.user.id)
         loadImap(session.user.id)
+        loadKontakte(session.user.id)
       }
     })
   }, [])
@@ -136,6 +137,31 @@ export default function Profil() {
     setImapTesting(false)
   }
 
+  async function loadKontakte(uid) {
+    const { data } = await supabase.from('kontakte').select('*').eq('user_id', uid).order('name')
+    setKontakte(data || [])
+  }
+
+  async function addKontakt() {
+    if (!kName) return
+    const { error } = await supabase.from('kontakte').insert({
+      user_id: session.user.id, kategorie: kKat, name: kName,
+      organisation: kOrg, email: kEmail, telefon: kTelefon,
+      adresse: kAdresse, notiz: kNotiz,
+    })
+    if (!error) {
+      setKName(''); setKOrg(''); setKEmail(''); setKTelefon(''); setKAdresse(''); setKNotiz('')
+      loadKontakte(session.user.id)
+      setMsg({ text: 'Kontakt gespeichert ✓', err: false }); setTimeout(() => setMsg(null), 3000)
+    }
+  }
+
+  async function deleteKontakt(id) {
+    if (!confirm('Kontakt wirklich löschen?')) return
+    await supabase.from('kontakte').delete().eq('id', id)
+    loadKontakte(session.user.id)
+  }
+
   async function addMieter() {
     if (!mVorname || !mNachname) return
     const { error } = await supabase.from('mieter').insert({
@@ -165,11 +191,21 @@ export default function Profil() {
     setter(val.replace(/[^\d+\s\-()]/g, ''))
   }
 
+  const [kontakte, setKontakte]       = useState([])
+  const [kKat, setKKat]               = useState('Arzt')
+  const [kName, setKName]             = useState('')
+  const [kOrg, setKOrg]               = useState('')
+  const [kEmail, setKEmail]           = useState('')
+  const [kTelefon, setKTelefon]       = useState('')
+  const [kAdresse, setKAdresse]       = useState('')
+  const [kNotiz, setKNotiz]           = useState('')
+
   const sections = [
-    { id: 'person', label: '👤 Person' },
-    { id: 'bank',   label: '🏦 Bank' },
-    { id: 'mieter', label: '🏠 Mieter' },
-    { id: 'imap',   label: '📧 E-Mail' },
+    { id: 'person',   label: '👤 Person' },
+    { id: 'bank',     label: '🏦 Bank' },
+    { id: 'mieter',   label: '🏠 Mieter' },
+    { id: 'kontakte', label: '📒 Kontakte' },
+    { id: 'imap',     label: '📧 E-Mail' },
   ]
 
   const s = { // shared input style
@@ -390,6 +426,77 @@ export default function Profil() {
                 <button onClick={addMieter} disabled={!mVorname || !mNachname}
                   style={{ width: '100%', padding: 13, borderRadius: 11, border: 'none', background: '#0A1628', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', opacity: (!mVorname || !mNachname) ? 0.4 : 1 }}>
                   Mieter hinzufügen
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── KONTAKTE ── */}
+          {activeSection === 'kontakte' && (
+            <div>
+              {kontakte.map(k => (
+                <div key={k.id} style={{ background: '#fff', borderRadius: 14, padding: 14, marginBottom: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#F0F4FF', color: '#0A1628' }}>{k.kategorie}</span>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#0A1628' }}>{k.name}</div>
+                      {k.organisation && <div style={{ fontSize: 12, color: '#6B7280', marginTop: 1 }}>{k.organisation}</div>}
+                      {k.email && <div style={{ fontSize: 12, color: '#0A1628', marginTop: 2 }}>✉ {k.email}</div>}
+                      {k.telefon && <div style={{ fontSize: 12, color: '#6B7280', marginTop: 1 }}>📞 {k.telefon}</div>}
+                      {k.notiz && <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 3, fontStyle: 'italic' }}>{k.notiz}</div>}
+                    </div>
+                    <button onClick={() => deleteKontakt(k.id)}
+                      style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '5px 9px', cursor: 'pointer', fontSize: 13, color: '#B91C1C' }}>✕</button>
+                  </div>
+                </div>
+              ))}
+
+              <div style={{ background: '#fff', borderRadius: 16, padding: 18, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#0A1628', marginBottom: 4 }}>Kontakt hinzufügen</div>
+                <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 14, lineHeight: 1.5 }}>
+                  Diese Kontakte werden automatisch beim Anschreiben-Generator vorgeschlagen.
+                </div>
+
+                <div style={{ marginBottom: 10 }}>
+                  <label style={label}>Kategorie</label>
+                  <select value={kKat} onChange={e => setKKat(e.target.value)}
+                    style={{ ...s, cursor: 'pointer' }}>
+                    {['Arzt', 'Anwalt', 'Steuerberater', 'Hausmeister', 'Nachbar', 'Behörde', 'Handwerker', 'Sonstiges'].map(k => (
+                      <option key={k} value={k}>{k}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ marginBottom: 10 }}>
+                  <label style={label}>Name *</label>
+                  <input style={s} type="text" value={kName} onChange={e => setKName(e.target.value)} placeholder="Dr. Klaus Hoffmann" />
+                </div>
+
+                <div style={{ marginBottom: 10 }}>
+                  <label style={label}>Organisation / Praxis</label>
+                  <input style={s} type="text" value={kOrg} onChange={e => setKOrg(e.target.value)} placeholder="Praxis Dr. Hoffmann" />
+                </div>
+
+                <div style={{ marginBottom: 10 }}>
+                  <label style={label}>E-Mail</label>
+                  <input style={s} type="email" autoComplete="off" inputMode="email" value={kEmail} onChange={e => setKEmail(e.target.value)} placeholder="kontakt@beispiel.de" />
+                </div>
+
+                <div style={{ marginBottom: 10 }}>
+                  <label style={label}>Telefon</label>
+                  <input style={s} type="tel" inputMode="tel" value={kTelefon} onChange={e => handleTelefon(e.target.value, setKTelefon)} placeholder="+49 208 12345" />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={label}>Notiz</label>
+                  <input style={s} type="text" value={kNotiz} onChange={e => setKNotiz(e.target.value)} placeholder="z.B. Mein Hausarzt seit 2010" />
+                </div>
+
+                <button onClick={addKontakt} disabled={!kName}
+                  style={{ width: '100%', padding: 13, borderRadius: 11, border: 'none', background: '#0A1628', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', opacity: !kName ? 0.4 : 1 }}>
+                  Kontakt hinzufügen
                 </button>
               </div>
             </div>
