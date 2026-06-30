@@ -219,16 +219,18 @@ export default function Scannen() {
 
   useEffect(() => {
     async function initAuth() {
-      // getSession() liest localStorage (kein Netzwerk-Call)
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session }, error: e1 } = await supabase.auth.getSession();
+      addLog(`getSession: ${session ? 'OK token='+session.access_token.slice(0,15)+'…' : 'null'} err=${e1?.message||'–'}`);
       if (session?.access_token) { setJwt(session.access_token); return; }
-      // Fallback: getUser() validiert server-seitig und refresht expired tokens
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push('/'); return; }
-      // Nach getUser() hat Supabase das Token refreshed — nochmal getSession()
+
+      const { data: { user }, error: e2 } = await supabase.auth.getUser();
+      addLog(`getUser: ${user ? 'OK uid='+user.id.slice(0,8) : 'null'} err=${e2?.message||'–'}`);
+      if (!user) { addLog('→ Redirect /'); router.push('/'); return; }
+
       const { data: { session: s2 } } = await supabase.auth.getSession();
+      addLog(`getSession2: ${s2 ? 'OK' : 'null'}`);
       if (s2?.access_token) setJwt(s2.access_token);
-      else router.push('/');
+      else { addLog('→ Redirect /'); router.push('/'); }
     }
     initAuth();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
