@@ -261,13 +261,27 @@ export default function Scannen() {
     setLogLines(prev => [...prev.slice(-29), `${new Date().toLocaleTimeString()} ${msg}`]);
   }
 
+  // Cloud-Dateien (iCloud Drive, Google Drive, Dropbox) liefern beim Auswählen
+  // über den iOS-Dateipicker oft einen leeren file.type. Ohne Fallback wirft
+  // der Filter solche Dateien lautlos raus. Hier per Dateiendung erkennen.
+  function resolveType(f) {
+    if (f.type) return f.type;
+    const ext = (f.name.split('.').pop() || '').toLowerCase();
+    const map = {
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+      gif: 'image/gif', webp: 'image/webp', heic: 'image/heic',
+      pdf: 'application/pdf',
+    };
+    return map[ext] || '';
+  }
+
   function addFiles(fileList) {
     setError(null);
-    const arr = Array.from(fileList).filter(f =>
-      f.type.startsWith('image/') || f.type === 'application/pdf'
-    );
+    const arr = Array.from(fileList)
+      .map(f => ({ file: f, type: resolveType(f) }))
+      .filter(({ type }) => type.startsWith('image/') || type === 'application/pdf');
     if (!arr.length) { setError('Nur Bilder oder PDFs.'); return; }
-    setPages(prev => [...prev, ...arr.map(f => ({ file:f, previewUrl:URL.createObjectURL(f) }))]);
+    setPages(prev => [...prev, ...arr.map(({ file }) => ({ file, previewUrl: URL.createObjectURL(file) }))]);
   }
 
   function removePage(idx) {
@@ -303,11 +317,12 @@ export default function Scannen() {
       const uploadedUrls = [];
       for (let i = 0; i < pages.length; i++) {
         const { file } = pages[i];
+        const resolvedType = resolveType(file) || 'application/octet-stream';
         const ext  = file.name.split('.').pop() || 'jpg';
         const path = `${user.id}/${Date.now()}_${i}.${ext}`;
-        addLog(`Upload ${i+1}/${pages.length}: ${file.name} (${(file.size/1024).toFixed(0)}KB)`);
+        addLog(`Upload ${i+1}/${pages.length}: ${file.name} (${(file.size/1024).toFixed(0)}KB, ${resolvedType})`);
         const { error: upErr } = await supabase.storage
-          .from('dokumente').upload(path, file, { upsert: false });
+          .from('dokumente').upload(path, file, { upsert: false, contentType: resolvedType });
         if (upErr) {
           addLog(`Upload-Fehler: ${upErr.message}`);
           setError(`Upload fehlgeschlagen: ${upErr.message}`);
@@ -490,7 +505,7 @@ export default function Scannen() {
                   <div style={{ width:80, height:80, borderRadius:10, overflow:'hidden',
                     border:'1px solid #E5E7EB', background:'#F9FAFB',
                     display:'flex', alignItems:'center', justifyContent:'center' }}>
-                    {p.file.type.startsWith('image/') ? (
+                    {resolveType(p.file).startsWith('image/') ? (
                       <img src={p.previewUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                     ) : (
                       <Icon d={icons.file} size={30} color="#9CA3AF" />
