@@ -123,7 +123,14 @@ export default function Home() {
   const [notizSaving, setNotizSaving]   = useState(false)
   const [docReminder, setDocReminder]   = useState('')
   const [kontakte, setKontakte]         = useState([])
-  const fileRef = useRef()
+  const [cameraOpen, setCameraOpen]     = useState(false)
+  const [scanQuality, setScanQuality]   = useState('neutral')
+  const fileRef          = useRef()
+  const videoRef         = useRef()
+  const canvasRef        = useRef()
+  const scanIntervalRef  = useRef()
+  const streamRef        = useRef(null)
+  const qualityCountRef  = useRef(0)
   const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -251,6 +258,82 @@ export default function Home() {
     const { data } = await supabase.from('kontakte').select('*').eq('user_id', uid).order('name')
     setKontakte(data || [])
   }
+
+  // ── Camera ────────────────────────────────────────────────────────────────
+  function stopScanLoop() {
+    if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); scanIntervalRef.current = null }
+  }
+
+  function startScanLoop() {
+    stopScanLoop()
+    scanIntervalRef.current = setInterval(() => {
+      const video = videoRef.current; const canvas = canvasRef.current
+      if (!video || !canvas || video.readyState < 2) return
+      const w = video.videoWidth || 640; const h = video.videoHeight || 480
+      canvas.width = w; canvas.height = h
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(video, 0, 0)
+      const sx = Math.floor(w * 0.15); const sy = Math.floor(h * 0.15)
+      const sw = Math.floor(w * 0.7);  const sh = Math.floor(h * 0.7)
+      const data = ctx.getImageData(sx, sy, sw, sh).data
+      let total = 0; let count = 0
+      for (let i = 0; i < data.length; i += 20) {
+        total += 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]; count++
+      }
+      const brightness = count > 0 ? total / count : 0
+      if (brightness < 55) { qualityCountRef.current = 0; setScanQuality('dark') }
+      else if (brightness > 238) { qualityCountRef.current = 0; setScanQuality('bright') }
+      else { qualityCountRef.current++; setScanQuality(qualityCountRef.current >= 3 ? 'good' : 'neutral') }
+    }, 200)
+  }
+
+  async function openCamera() {
+    if (!navigator.mediaDevices?.getUserMedia) { fileRef.current?.click(); return }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+      })
+      streamRef.current = stream
+      qualityCountRef.current = 0
+      setScanQuality('neutral')
+      setCameraOpen(true)
+    } catch(e) {
+      setScanMsg({ text: 'Kamerazugriff nicht möglich', err: true })
+      fileRef.current?.click()
+    }
+  }
+
+  function closeCamera() {
+    stopScanLoop()
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
+    setCameraOpen(false)
+    setScanQuality('neutral')
+    qualityCountRef.current = 0
+  }
+
+  function capturePhoto() {
+    const video = videoRef.current; const canvas = canvasRef.current
+    if (!video || !canvas) return
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight
+    canvas.getContext('2d').drawImage(video, 0, 0)
+    canvas.toBlob(blob => {
+      if (!blob) return
+      const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' })
+      addPhoto(file)
+      closeCamera()
+    }, 'image/jpeg', 0.92)
+  }
+
+  useEffect(() => {
+    if (cameraOpen && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current
+      videoRef.current.play().catch(() => {})
+      startScanLoop()
+    }
+    return () => stopScanLoop()
+  }, [cameraOpen])
+
+  useEffect(() => { if (view !== 'scan' && cameraOpen) closeCamera() }, [view])
 
   // ── Photos ────────────────────────────────────────────────────────────────
   function addPhoto(f) {
@@ -477,6 +560,12 @@ export default function Home() {
   const greeting=(profAnrede==='Herr'||profAnrede==='Frau')
     ?(profNachname?`${profAnrede} ${profNachname}`:profVorname||emailPrefix)
     :(profVorname||emailPrefix)
+  const camColor = scanQuality==='good' ? '#22c55e' : (scanQuality==='dark'||scanQuality==='bright') ? '#f97316' : 'rgba(255,255,255,0.72)'
+  const camShadow = scanQuality==='good' ? '0 0 0 5px rgba(34,197,94,0.28)' : (scanQuality==='dark'||scanQuality==='bright') ? '0 0 0 5px rgba(249,115,22,0.22)' : 'none'
+  const camBadge = scanQuality==='good' ? { bg:'rgba(34,197,94,0.93)', text:'✓ Gut erfasst' }
+    : scanQuality==='dark'   ? { bg:'rgba(249,115,22,0.93)', text:'⚠ Zu dunkel' }
+    : scanQuality==='bright' ? { bg:'rgba(249,115,22,0.93)', text:'⚠ Zu hell' }
+    : { bg:'rgba(0,0,0,0.52)', text:'Dokument positionieren' }
 
   function toggleGroup(key) { setCollapsedGroups(prev => ({ ...prev, [key]: !prev[key] })) }
 
@@ -804,7 +893,7 @@ export default function Home() {
                     </div>
                     <div className="caption">Mehrere Seiten möglich — z.B. Vorder- und Rückseite</div>
                     <div style={{display:'flex',gap:8,justifyContent:'center',marginTop:14}}>
-                      <button className="btn-primary" onClick={e => { e.stopPropagation(); fileRef.current.click() }}>Aufnehmen</button>
+                      <button className="btn-primary" onClick={e => { e.stopPropagation(); openCamera() }}>Aufnehmen</button>
                       <button className="btn-secondary" onClick={e => { e.stopPropagation(); fileRef.current.click() }}>Datei wählen</button>
                     </div>
                   </div>
@@ -1008,6 +1097,74 @@ export default function Home() {
             </div>
           )}
         </div>
+
+        {/* ── CAMERA OVERLAY ── */}
+        {cameraOpen && (
+          <div style={{position:'fixed',inset:0,background:'#000',zIndex:300,userSelect:'none'}}>
+            <video ref={videoRef} autoPlay playsInline muted
+              style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover'}}/>
+            <canvas ref={canvasRef} style={{display:'none'}}/>
+
+            {/* Frame guide */}
+            <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+              <div style={{position:'relative',width:'82%',aspectRatio:'3/4.2',borderRadius:14,
+                outline:`2.5px solid ${camColor}`,transition:'outline-color 350ms',
+                boxShadow:camShadow,transitionProperty:'outline-color,box-shadow',transitionDuration:'350ms'}}>
+
+                {/* Corner markers — TL */}
+                <div style={{position:'absolute',top:-3,left:-3,width:26,height:26}}>
+                  <div style={{position:'absolute',top:0,left:0,width:20,height:3,background:camColor,borderRadius:2,transition:'background 350ms'}}/>
+                  <div style={{position:'absolute',top:0,left:0,width:3,height:20,background:camColor,borderRadius:2,transition:'background 350ms'}}/>
+                </div>
+                {/* TR */}
+                <div style={{position:'absolute',top:-3,right:-3,width:26,height:26}}>
+                  <div style={{position:'absolute',top:0,right:0,width:20,height:3,background:camColor,borderRadius:2,transition:'background 350ms'}}/>
+                  <div style={{position:'absolute',top:0,right:0,width:3,height:20,background:camColor,borderRadius:2,transition:'background 350ms'}}/>
+                </div>
+                {/* BL */}
+                <div style={{position:'absolute',bottom:-3,left:-3,width:26,height:26}}>
+                  <div style={{position:'absolute',bottom:0,left:0,width:20,height:3,background:camColor,borderRadius:2,transition:'background 350ms'}}/>
+                  <div style={{position:'absolute',bottom:0,left:0,width:3,height:20,background:camColor,borderRadius:2,transition:'background 350ms'}}/>
+                </div>
+                {/* BR */}
+                <div style={{position:'absolute',bottom:-3,right:-3,width:26,height:26}}>
+                  <div style={{position:'absolute',bottom:0,right:0,width:20,height:3,background:camColor,borderRadius:2,transition:'background 350ms'}}/>
+                  <div style={{position:'absolute',bottom:0,right:0,width:3,height:20,background:camColor,borderRadius:2,transition:'background 350ms'}}/>
+                </div>
+
+                {/* Status badge */}
+                <div style={{position:'absolute',top:-52,left:'50%',transform:'translateX(-50%)',
+                  background:camBadge.bg,color:'#fff',padding:'7px 18px',borderRadius:24,
+                  fontSize:13,fontWeight:700,whiteSpace:'nowrap',
+                  boxShadow:'0 2px 10px rgba(0,0,0,0.35)',transition:'background 350ms'}}>
+                  {camBadge.text}
+                </div>
+              </div>
+            </div>
+
+            {/* Top fade */}
+            <div style={{position:'absolute',top:0,left:0,right:0,height:'10%',background:'linear-gradient(to bottom,rgba(0,0,0,0.5),transparent)',pointerEvents:'none'}}/>
+
+            {/* Bottom controls */}
+            <div style={{position:'absolute',bottom:0,left:0,right:0,
+              padding:`24px 44px max(32px,env(safe-area-inset-bottom))`,
+              background:'linear-gradient(to top,rgba(0,0,0,0.65) 60%,transparent)',
+              display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <button onClick={closeCamera}
+                style={{width:52,height:52,borderRadius:'50%',border:'2px solid rgba(255,255,255,0.45)',background:'rgba(0,0,0,0.4)',color:'#fff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'inherit'}}>
+                ✕
+              </button>
+              <button onClick={capturePhoto}
+                style={{width:78,height:78,borderRadius:'50%',padding:5,border:`4px solid ${scanQuality==='dark'||scanQuality==='bright'?'#f97316':'rgba(255,255,255,0.9)'}`,background:'transparent',cursor:'pointer',transition:'border-color 350ms'}}>
+                <div style={{width:'100%',height:'100%',borderRadius:'50%',background:scanQuality==='good'?'#22c55e':'rgba(255,255,255,0.92)',transition:'background 350ms'}}/>
+              </button>
+              <button onClick={() => { closeCamera(); fileRef.current?.click() }}
+                style={{width:52,height:52,borderRadius:'50%',border:'2px solid rgba(255,255,255,0.45)',background:'rgba(0,0,0,0.4)',color:'rgba(255,255,255,0.85)',fontSize:10,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'inherit',lineHeight:1.2,textAlign:'center'}}>
+                Datei
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── DOKUMENT DETAIL MODAL ── */}
         {selectedDoc && (
