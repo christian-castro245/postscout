@@ -208,8 +208,8 @@ export default function ScanOnly() {
         ? `Analysiere diese ${pages.length} Seiten als ein Dokument.`
         : 'Analysiere diesen Brief.' })
 
-      // Analyze via API
-      const res = await fetch('/api/analyze', {
+      // Analyze via dedicated anonymous-scan API (kein dokumentId vorhanden)
+      const res = await fetch('/api/analyze-anon', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contentParts, userId: tokenData.ownerId }),

@@ -9,11 +9,17 @@ const supabase = createClient(
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// Unterstützte Bild-Formate für die Claude Vision API.
+// PDFs werden separat behandelt (document-Block statt image-Block).
+const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { dokumentId } = req.body;
-  if (!dokumentId) return res.status(400).json({ error: 'dokumentId required' });
+  const { dokumentId } = req.body || {};
+  if (!dokumentId) {
+    return res.status(400).json({ error: 'dokumentId required', received: req.body });
+  }
 
   // Fetch document
   const { data: dok, error } = await supabase
@@ -22,20 +28,49 @@ export default async function handler(req, res) {
     .eq('id', dokumentId)
     .single();
 
-  if (error || !dok) return res.status(404).json({ error: 'Dokument nicht gefunden' });
+  if (error || !dok) {
+    return res.status(404).json({ error: 'Dokument nicht gefunden', detail: error?.message });
+  }
 
-  // Build image content blocks for all photos
-  const imageBlocks = [];
+  // Build content blocks for all photos/pages.
+  // Bilder gehen als image-Block, PDFs als document-Block (Claude unterstützt beide nativ).
+  const fileBlocks = [];
   const urls = Array.isArray(dok.bild_urls) ? dok.bild_urls : dok.bild_url ? [dok.bild_url] : [];
 
   for (const url of urls.slice(0, 5)) {
     try {
-      const imgRes = await fetch(url);
-      const buf = await imgRes.arrayBuffer();
+      const fileRes = await fetch(url);
+      if (!fileRes.ok) continue;
+      const buf = await fileRes.arrayBuffer();
       const b64 = Buffer.from(buf).toString('base64');
-      const ct = imgRes.headers.get('content-type') || 'image/jpeg';
-      imageBlocks.push({ type: 'image', source: { type: 'base64', media_type: ct, data: b64 } });
-    } catch { /* skip broken images */ }
+      let ct = fileRes.headers.get('content-type') || 'image/jpeg';
+      ct = ct.split(';')[0].trim(); // strip charset etc.
+
+      if (ct === 'application/pdf') {
+        fileBlocks.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: b64 },
+        });
+      } else if (SUPPORTED_IMAGE_TYPES.includes(ct)) {
+        fileBlocks.push({
+          type: 'image',
+          source: { type: 'base64', media_type: ct, data: b64 },
+        });
+      } else {
+        // Unbekannter Typ (z.B. octet-stream) — versuche als JPEG, Claude ist tolerant
+        fileBlocks.push({
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/jpeg', data: b64 },
+        });
+      }
+    } catch (fetchErr) {
+      console.error('Datei-Fetch fehlgeschlagen:', url, fetchErr.message);
+      /* einzelne kaputte Datei überspringen, Rest weiter verarbeiten */
+    }
+  }
+
+  if (fileBlocks.length === 0) {
+    return res.status(422).json({ error: 'Keine lesbaren Dateien gefunden für dieses Dokument' });
   }
 
   const systemPrompt = `Du analysierst Dokumente (Briefe, Bescheide, Rechnungen) für ältere Menschen in Deutschland.
@@ -67,7 +102,7 @@ Falls kein Datum erkennbar → null. NIEMALS leere Strings oder unformatierte Da
   let analysisText = '';
   try {
     const msgContent = [
-      ...imageBlocks,
+      ...fileBlocks,
       {
         type: 'text',
         text: `Analysiere dieses Dokument vollständig und gib das JSON zurück.${dok.raw_text ? `\n\nExtrahierter Text:\n${dok.raw_text}` : ''}`,
