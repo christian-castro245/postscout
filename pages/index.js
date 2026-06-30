@@ -255,38 +255,18 @@ export default function Home() {
     if (!photos.length) return
     setAnalyzing(true); setScanMsg(null); setDuplikatWarnung(null)
     try {
-      const uid = session.user.id
-      const contentParts = photos.map(p => p.mimeType.startsWith('image/')
-        ? { type:'image', source:{ type:'base64', media_type:p.mimeType, data:p.base64 } }
-        : { type:'document', source:{ type:'base64', media_type:'application/pdf', data:p.base64 } }
-      )
-      contentParts.push({ type:'text', text: photos.length>1?`Analysiere diese ${photos.length} Seiten als ein Dokument.`:'Analysiere diesen Brief.' })
-      const res = await fetch('/api/analyze', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ contentParts, userId:uid }),
-      })
-      if (!res.ok) { const e=await res.json(); throw new Error(e.error||'Fehler') }
-      const r = await res.json()
-      if (r.duplikat) { setDuplikatWarnung(r.duplikat); setAnalyzing(false); return }
-      const ts = Date.now(); const storagePaths = []
-      for (let i=0; i<photos.length; i++) {
-        const p = photos[i]; const path=`${uid}/${ts}_${i}_${p.file.name}`
-        const { error:se } = await supabase.storage.from('dokumente').upload(path, p.file, { contentType:p.mimeType })
-        if (se) throw new Error('Upload: '+se.message)
-        storagePaths.push(path)
+      const form = new FormData()
+      for (const p of photos) {
+        const mimeType = p.mimeType || (p.file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg')
+        const blob = p.file.type ? p.file : new Blob([p.file], { type: mimeType })
+        form.append('files', blob, p.file.name || `scan_${Date.now()}.jpg`)
       }
-      const { error:dbErr } = await supabase.from('dokumente').insert({
-        user_id:uid, dateiname:photos.map(p=>p.file.name).join(', '),
-        storage_path:storagePaths[0], mime_type:photos[0].mimeType,
-        kategorie:r.kategorie, absender:r.absender, zusammenfassung:r.zusammenfassung,
-        dringlichkeit:r.dringlichkeit, frist:parseFrist(r.frist),
-        betrag:r.betrag, steuerrelevant:r.steuerrelevant, jahr:new Date().getFullYear(),
-        todos:(r.todos||[]).map(t=>({...t,dringlichkeit:t.dringlichkeit||r.dringlichkeit,status:'offen'})),
-        empfehlungen:r.empfehlungen||[], quelle:'scan', anhaenge:[],
-        inhalts_hash:r.inhaltsHash||null, notizen:[],
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+        body: form,
       })
-      if (dbErr) throw new Error('DB: '+dbErr.message)
-      if (r.mailAntwortErforderlich&&r.mailVorlage) setMailDraft(r.mailVorlage)
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Fehler') }
       setPhotos([]); await loadAll(); setView('todos')
     } catch(e) { setScanMsg({ text:e.message, err:true }) }
     finally { setAnalyzing(false) }
