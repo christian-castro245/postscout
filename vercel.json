@@ -1,0 +1,16 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "next build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
+  "crons": [
+    {
+      "path": "/api/imap-sync",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/reminder-send",
+      "schedule": "0 8 * * *"
+    }
+  ]
+}

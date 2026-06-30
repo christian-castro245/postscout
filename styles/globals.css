@@ -1,0 +1,14 @@
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap');
+@import './design-tokens.css';
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--ps-font);
+  background: var(--ps-bg);
+  color: var(--ps-ink);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+input, button, select, textarea { font-family: inherit; }
