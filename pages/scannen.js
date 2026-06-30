@@ -345,7 +345,10 @@ export default function Scannen() {
           <button onClick={() => router.back()} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}>
             <Icon d={icons.back} size={20} color="#fff" />
           </button>
-          <span style={{ fontWeight:700, color:'#fff', fontSize:17 }}>Brief scannen</span>
+          <span style={{ fontWeight:700, color:'#fff', fontSize:17, flex:1 }}>Brief scannen</span>
+          <span style={{ fontSize:11, color: jwt ? '#86EFAC' : '#FCA5A5', fontWeight:600 }}>
+            {jwt ? '● Session OK' : '● Kein Login'}
+          </span>
         </div>
 
         <div style={{ padding:'20px 16px 0' }}>
