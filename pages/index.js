@@ -69,11 +69,14 @@ const Icons = {
   calendar:<Icon size={18}><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></Icon>,
   download:<Icon size={18}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></Icon>,
   qr:      <Icon size={18} viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h.01M18 14h.01M14 18h.01M18 18h.01M14 14v4h4v-4z" opacity=".5"/></Icon>,
+  menu:    <Icon size={22} sw={1.8}><path d="M4 6h16M4 12h16M4 18h16"/></Icon>,
+  home:    <Icon size={22}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></Icon>,
+  contact: <Icon size={22}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Icon>,
 }
 
 // ── NAV TABS ─────────────────────────────────────────────────────────────────
 const NAV_TABS = [
-  { id:'todos',  label:'Aufgaben', icon: Icons.tasks  },
+  { id:'home',   label:'Start',    icon: Icons.home   },
   { id:'scan',   label:'Scannen',  icon: Icons.camera },
   { id:'archiv', label:'Archiv',   icon: Icons.archive},
   { id:'familie',label:'Familie',  icon: Icons.users  },
@@ -110,6 +113,8 @@ export default function Home() {
   const [anschreiben, setAnschreiben]   = useState(null)
   const [anschreibenDoc, setAnschreibenDoc] = useState(null)
   const [duplikatWarnung, setDuplikatWarnung] = useState(null)
+  const [menuOpen, setMenuOpen]               = useState(false)
+  const [collapsedGroups, setCollapsedGroups] = useState({ ueberfaellig:false, hoch:false, mittel:true, niedrig:true })
   const [selectedDoc, setSelectedDoc]   = useState(null)
   const [neueNotiz, setNeueNotiz]       = useState('')
   const [notizSaving, setNotizSaving]   = useState(false)
@@ -456,7 +461,9 @@ export default function Home() {
   const canEdit=!ownerView||myPermission==='abhaken'||myPermission==='notizen'
   const userName=session?.user?.email?.split('@')[0]||''
 
-  const showBottomNav = session && view !== 'home'
+  function toggleGroup(key) { setCollapsedGroups(prev => ({ ...prev, [key]: !prev[key] })) }
+
+  const showBottomNav = !!session
 
   // ── RENDER ────────────────────────────────────────────────────────────────
   return (
@@ -475,8 +482,12 @@ export default function Home() {
             <button className="top-back-btn" onClick={() => setView('home')}>
               {Icons.back}
             </button>
+          ) : session ? (
+            <button className="top-back-btn" onClick={() => setMenuOpen(true)} title="Menü">
+              {Icons.menu}
+            </button>
           ) : (
-            <span style={{width:34}} />
+            <span style={{width:36}} />
           )}
           <button className="top-logo" onClick={session ? () => setView('home') : undefined}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -579,40 +590,85 @@ export default function Home() {
                 </button>
               )}
 
-              {/* Menu list */}
-              <div className="menu-list">
-                {[
-                  { id:'todos',   label:'Aufgaben', desc: openTodos > 0 ? `${openTodos} offen` : 'Alle erledigt', icon: Icons.tasks,   badge: openTodos > 0 ? openTodos : null, badgeUrgent: urgentTodos > 0, icoBg:'#EAF0F4', icoColor:'#1F3A52' },
-                  ...(isOwner ? [
-                    { id:'archiv',  label:'Archiv',   desc:`${docs.length} Dokumente`,             icon: Icons.archive, icoBg:'#E6F0E9', icoColor:'#2E5A3C' },
-                    { id:'familie', label:'Familie',   desc:`${familyMembers.filter(m=>m.aktiv).length} aktiv`, icon: Icons.users, icoBg:'#FBF0E8', icoColor:'#C2410C' },
-                    { id:'export',  label:'Export',    desc:'PDF & CSV',                            icon: Icons.upload,  icoBg:'#FBF0DC', icoColor:'#8A5A12' },
-                    { id:'profil',  label:'Profil',    desc:'Persönliche Daten',                    icon: Icons.user, href:'/profil', icoBg:'#F4F2EC', icoColor:'#7C786E' },
-                  ] : [
-                    { id:'archiv',  label:'Archiv',   desc:`${docs.length} Dokumente`, icon: Icons.archive, icoBg:'#E6F0E9', icoColor:'#2E5A3C' },
-                  ])
-                ].map(item => (
-                  <button key={item.id} className="menu-item"
-                    onClick={() => item.href ? (window.location.href = item.href) : setView(item.id)}>
-                    <div className="menu-item-ico" style={{background:item.icoBg,color:item.icoColor}}>{item.icon}</div>
-                    <div className="menu-item-info">
-                      <span className="menu-item-label">{item.label}</span>
-                      <span className="menu-item-desc">{item.desc}</span>
+              {/* Inline task list with collapsible groups */}
+              {mailDraft && (
+                <div className="mail-banner">
+                  <div className="mail-banner-row">
+                    {Icons.mail}
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:'#1F3A52'}}>Antwort erforderlich</div>
+                      <div className="caption">E-Mail-Vorlage erstellt</div>
                     </div>
-                    {item.badge && (
-                      <span className="menu-badge" style={{background: item.badgeUrgent ? '#F97316' : '#1F3A52'}}>{item.badge}</span>
-                    )}
-                    {Icons.chevron}
-                  </button>
-                ))}
-              </div>
-
-              {isOwner && (
-                <div className="inbound-card">
-                  <div className="overline" style={{marginBottom:6}}>Per E-Mail weiterleiten</div>
-                  <div className="caption" style={{marginBottom:8}}>Briefe direkt an Ihre PostScout-Adresse senden:</div>
-                  <div className="inbound-addr">briefe+{session.user.id.slice(0,8)}@postscout.app</div>
+                    <button onClick={() => setMailDraft(null)} className="icon-close">✕</button>
+                  </div>
+                  {mailDraft.betreff && <div className="mail-preview-row"><span>Betreff:</span> {mailDraft.betreff}</div>}
+                  <button className="btn-primary btn-full" onClick={() => openMail(mailDraft)} style={{marginTop:10}}>In Mail öffnen</button>
                 </div>
+              )}
+
+              {allTodos.length === 0 ? (
+                <div className="empty-state">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#C8C4B8" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
+                  <p>Alle Aufgaben erledigt</p>
+                  {isOwner && <button className="btn-ghost" onClick={() => setView('scan')}>Brief scannen</button>}
+                </div>
+              ) : (
+                <>
+                  <div className="todos-bar">
+                    <span className="todos-count">{openTodos} offen</span>
+                    {urgentTodos > 0 && <span className="pill-signal">{urgentTodos} dringend</span>}
+                    {!canEdit && <span className="pill-muted" style={{marginLeft:'auto'}}>Nur-Lesen</span>}
+                  </div>
+                  {DRING_ORDER.filter(d => d !== 'ignorieren').map(dring => {
+                    const group = allTodos.filter(t => t.dringlichkeit === dring)
+                    if (!group.length) return null
+                    const d = DRING[dring]
+                    const open = group.filter(t => !t.erledigt && t.status !== 'erledigt')
+                    const done = group.filter(t =>  t.erledigt || t.status === 'erledigt')
+                    const isCollapsed = !!collapsedGroups[dring]
+                    return (
+                      <div key={dring} className="todo-group">
+                        <button className="todo-group-toggle" onClick={() => toggleGroup(dring)}>
+                          <div style={{display:'flex',alignItems:'center',gap:7}}>
+                            <span className="todo-dot" style={{background:d.dot}}/>
+                            <span style={{color:d.color,fontWeight:700,fontSize:11,letterSpacing:'0.06em',textTransform:'uppercase'}}>{d.label}</span>
+                            <span style={{fontWeight:500,color:'#9A968B',fontSize:11}}>{open.length} offen</span>
+                          </div>
+                          <span style={{display:'flex',color:'#C8C4B8',transform:isCollapsed?'rotate(0deg)':'rotate(90deg)',transition:'transform 200ms'}}>
+                            {Icons.chevron}
+                          </span>
+                        </button>
+                        {!isCollapsed && [...open, ...done].map((t, i) => {
+                          const status = t.status || (t.erledigt ? 'erledigt' : 'offen')
+                          const s = TODO_STATUS[status] || TODO_STATUS.offen
+                          const isDone = status === 'erledigt'
+                          return (
+                            <div key={i} className={`todo-card${isDone ? ' todo-card-done' : ''}`}>
+                              <button className="todo-check-btn" onClick={() => cycleTodoStatus(t.docId, t.todoIdx)}
+                                disabled={!canEdit} title={s.label}
+                                style={{borderColor:s.color, background:s.bg, opacity:!canEdit?0.4:1}}>
+                                {status === 'erledigt' && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#2E7D46" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>}
+                                {status === 'in_bearbeitung' && <span style={{fontSize:10,color:'#8A5A12'}}>↻</span>}
+                                {status === 'wartet' && <span style={{fontSize:10,color:'#1F3A52'}}>…</span>}
+                              </button>
+                              <div className="todo-body">
+                                <div className="todo-aufgabe" style={{textDecoration:isDone?'line-through':'none',opacity:isDone?0.45:1}}>{t.aufgabe}</div>
+                                <div className="todo-meta">
+                                  <span>{t.catIco} {t.docName}</span>
+                                  {t.frist && <span style={{color:dring==='ueberfaellig'?'#B3402C':dring==='hoch'?'#C2410C':'#8A5A12',fontWeight:600}}>
+                                    {dring==='ueberfaellig'?'⚠ Überfällig · ':''}{new Date(t.frist+'T00:00:00').toLocaleDateString('de-DE')}
+                                  </span>}
+                                  {status !== 'offen' && <span className="pill-status" style={{color:s.color,background:s.bg}}>{s.label}</span>}
+                                  {t.erledigt_von && <span style={{color:'#9A968B'}}>{t.erledigt_von}</span>}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                </>
               )}
             </div>
           )}
@@ -1108,17 +1164,57 @@ export default function Home() {
           </div>
         )}
 
+        {/* ── HAMBURGER MENU ── */}
+        {menuOpen && (
+          <div className="modal-overlay" onClick={() => setMenuOpen(false)}>
+            <div className="modal-sheet" onClick={e => e.stopPropagation()}>
+              <div className="modal-handle" />
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 20px 10px'}}>
+                <span style={{fontSize:18,fontWeight:700,color:'var(--ps-ink)'}}>Menü</span>
+                <button className="icon-close" onClick={() => setMenuOpen(false)}>✕</button>
+              </div>
+              <div style={{padding:'0 0 max(32px,env(safe-area-inset-bottom))'}}>
+                {[
+                  { id:'archiv',  label:'Archiv',   desc:`${docs.length} Dokumente`,                               icon: Icons.archive, icoBg:'#E6F0E9', icoColor:'#2E5A3C' },
+                  ...(isOwner ? [
+                    { id:'familie', label:'Familie',  desc:`${familyMembers.filter(m=>m.aktiv).length} aktive Zugänge`, icon: Icons.users,   icoBg:'#FBF0E8', icoColor:'#C2410C' },
+                    { id:'kontakte',label:'Kontakte', desc:'Arzt, Anwalt & Co.',                                    icon: Icons.contact, icoBg:'#EAF0F4', icoColor:'#1F3A52', href:'/profil' },
+                    { id:'export',  label:'Export',   desc:'PDF & CSV',                                             icon: Icons.upload,  icoBg:'#FBF0DC', icoColor:'#8A5A12' },
+                    { id:'profil',  label:'Profil',   desc:'Persönliche Daten',                                     icon: Icons.user,    icoBg:'#F4F2EC', icoColor:'#7C786E', href:'/profil' },
+                  ] : [])
+                ].map(item => (
+                  <button key={item.id} className="menu-item"
+                    onClick={() => { setMenuOpen(false); item.href ? (window.location.href = item.href) : setView(item.id) }}>
+                    <div className="menu-item-ico" style={{background:item.icoBg,color:item.icoColor}}>{item.icon}</div>
+                    <div className="menu-item-info">
+                      <span className="menu-item-label">{item.label}</span>
+                      <span className="menu-item-desc">{item.desc}</span>
+                    </div>
+                    {Icons.chevron}
+                  </button>
+                ))}
+                {isOwner && (
+                  <div style={{margin:'8px 16px 0',padding:'12px 14px',background:'var(--ps-petrol-tint)',border:'1px solid var(--ps-petrol-tint-bd)',borderRadius:14}}>
+                    <div className="overline" style={{marginBottom:5,color:'var(--ps-faint)'}}>Per E-Mail weiterleiten</div>
+                    <div style={{fontSize:12,fontFamily:'monospace',color:'var(--ps-petrol)',fontWeight:600,wordBreak:'break-all'}}>briefe+{session.user.id.slice(0,8)}@postscout.app</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── BOTTOM NAV ── */}
         {showBottomNav && (
           <nav className="bottom-nav">
-            {NAV_TABS.filter(t => isOwner || t.id === 'todos' || t.id === 'archiv').map(tab => {
+            {NAV_TABS.filter(t => isOwner || t.id === 'home' || t.id === 'archiv').map(tab => {
               const isActive = view === tab.id
               return (
                 <button key={tab.id} className={`bottom-tab${isActive ? ' bottom-tab-active' : ''}`}
                   onClick={() => setView(tab.id)}>
                   <span className="bottom-tab-ico">{tab.icon}</span>
                   <span className="bottom-tab-lbl">{tab.label}</span>
-                  {tab.id === 'todos' && openTodos > 0 && (
+                  {tab.id === 'home' && openTodos > 0 && (
                     <span className="bottom-badge" style={{background: urgentTodos > 0 ? '#F97316' : '#1F3A52'}}>{openTodos}</span>
                   )}
                 </button>
@@ -1242,8 +1338,9 @@ export default function Home() {
         /* Todos */
         .todos-bar { display:flex; align-items:center; gap:8px; margin-bottom:18px; padding:12px 16px; background:var(--ps-surface); border-radius:16px; border:1px solid var(--ps-hairline); box-shadow:0 1px 3px rgba(26,23,18,0.04); }
         .todos-count { font-size:16px; font-weight:700; color:var(--ps-ink); }
-        .todo-group { margin-bottom:22px; }
+        .todo-group { margin-bottom:20px; }
         .todo-group-hd { display:flex; align-items:center; gap:7px; font-size:11px; font-weight:700; margin-bottom:10px; letter-spacing:0.07em; text-transform:uppercase; }
+        .todo-group-toggle { width:100%; display:flex; align-items:center; justify-content:space-between; background:none; border:none; cursor:pointer; padding:4px 0 10px; font-family:inherit; }
         .todo-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
         .todo-card { display:flex; align-items:flex-start; gap:12px; padding:14px 16px; background:var(--ps-surface); border-radius:16px; border:1px solid var(--ps-hairline); margin-bottom:8px; transition:opacity 180ms; box-shadow:0 1px 3px rgba(26,23,18,0.04); }
         .todo-card-done { opacity:0.5; }
