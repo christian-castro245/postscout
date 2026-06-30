@@ -1,12 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+import { supabase } from '../lib/supabase';
 
 const Icon = ({ d, size = 20, color = 'currentColor', strokeWidth = 1.6 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
