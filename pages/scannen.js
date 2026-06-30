@@ -57,12 +57,11 @@ function BottomNav({ active }) {
   );
 }
 
-// ── Kamera-Scanner mit Dokument-Erkennung ──────────────────────────────────
 function CameraScanner({ onCapture, onClose }) {
-  const videoRef   = useRef(null);
-  const canvasRef  = useRef(null);
-  const streamRef  = useRef(null);
-  const rafRef     = useRef(null);
+  const videoRef  = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const rafRef    = useRef(null);
   const [detected,   setDetected]   = useState(false);
   const [facingMode, setFacingMode] = useState('environment');
   const [ready,      setReady]      = useState(false);
@@ -71,8 +70,7 @@ function CameraScanner({ onCapture, onClose }) {
   const startCamera = useCallback(async (mode) => {
     if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    setReady(false);
-    setCamError(null);
+    setReady(false); setCamError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: mode, width: { ideal: 1920 }, height: { ideal: 1080 } },
@@ -84,9 +82,7 @@ function CameraScanner({ onCapture, onClose }) {
         await videoRef.current.play();
         setReady(true);
       }
-    } catch (err) {
-      setCamError('Kamera nicht verfügbar: ' + err.message);
-    }
+    } catch (err) { setCamError('Kamera nicht verfügbar: ' + err.message); }
   }, []);
 
   useEffect(() => {
@@ -97,15 +93,13 @@ function CameraScanner({ onCapture, onClose }) {
     };
   }, [facingMode, startCamera]);
 
-  // Dokument-Erkennung via Helligkeitskontrast
   useEffect(() => {
     if (!ready) return;
     let frame = 0;
     function analyze() {
       rafRef.current = requestAnimationFrame(analyze);
       if (++frame % 10 !== 0) return;
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
+      const video = videoRef.current, canvas = canvasRef.current;
       if (!video || !canvas || video.readyState < 2) return;
       const W = 160, H = 120;
       canvas.width = W; canvas.height = H;
@@ -115,12 +109,7 @@ function CameraScanner({ onCapture, onClose }) {
       const iw = Math.floor(W * 0.60), ih = Math.floor(H * 0.70);
       const inner = ctx.getImageData(ix, iy, iw, ih).data;
       const full  = ctx.getImageData(0, 0, W, H).data;
-      const avg = data => {
-        let s = 0, n = data.length / 4;
-        for (let i = 0; i < data.length; i += 4)
-          s += 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
-        return s / n;
-      };
+      const avg = d => { let s=0,n=d.length/4; for(let i=0;i<d.length;i+=4) s+=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2]; return s/n; };
       setDetected(Math.abs(avg(inner) - avg(full)) > 18);
     }
     rafRef.current = requestAnimationFrame(analyze);
@@ -130,8 +119,7 @@ function CameraScanner({ onCapture, onClose }) {
   function capture() {
     const video = videoRef.current;
     const c = document.createElement('canvas');
-    c.width = video.videoWidth || 1280;
-    c.height = video.videoHeight || 720;
+    c.width = video.videoWidth || 1280; c.height = video.videoHeight || 720;
     c.getContext('2d').drawImage(video, 0, 0);
     c.toBlob(blob => {
       if (!blob) return;
@@ -140,84 +128,57 @@ function CameraScanner({ onCapture, onClose }) {
     }, 'image/jpeg', 0.92);
   }
 
-  const green = '#22C55E';
-  const white = 'rgba(255,255,255,0.85)';
+  const green = '#22C55E', white = 'rgba(255,255,255,0.85)';
   const borderCol = detected ? green : 'rgba(255,255,255,0.45)';
   const cornerCol = detected ? green : white;
 
   return (
-    <div style={{ position:'fixed', inset:0, zIndex:100, background:'#000',
-      display:'flex', flexDirection:'column' }}>
+    <div style={{ position:'fixed', inset:0, zIndex:100, background:'#000', display:'flex', flexDirection:'column' }}>
       <div style={{ position:'relative', flex:1, overflow:'hidden' }}>
-        <video ref={videoRef} playsInline muted autoPlay
-          style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+        <video ref={videoRef} playsInline muted autoPlay style={{ width:'100%', height:'100%', objectFit:'cover' }} />
         <canvas ref={canvasRef} style={{ display:'none' }} />
-
-        {/* Abdunklung außerhalb Rahmen */}
         {ready && (
           <svg style={{ position:'absolute', inset:0, width:'100%', height:'100%', pointerEvents:'none' }}
             viewBox="0 0 100 100" preserveAspectRatio="none">
-            <defs>
-              <mask id="m">
-                <rect width="100" height="100" fill="white"/>
-                <rect x="10" y="15" width="80" height="70" rx="1.5" fill="black"/>
-              </mask>
-            </defs>
+            <defs><mask id="m"><rect width="100" height="100" fill="white"/>
+              <rect x="10" y="15" width="80" height="70" rx="1.5" fill="black"/></mask></defs>
             <rect width="100" height="100" fill="rgba(0,0,0,0.42)" mask="url(#m)"/>
           </svg>
         )}
-
-        {/* Dokument-Rahmen */}
         {ready && (
           <div style={{ position:'absolute', left:'10%', top:'15%', right:'10%', bottom:'15%',
-            border:`2px solid ${borderCol}`, borderRadius:8, pointerEvents:'none',
-            transition:'border-color 0.2s' }}>
-            {/* 4 Ecken */}
+            border:`2px solid ${borderCol}`, borderRadius:8, pointerEvents:'none', transition:'border-color 0.2s' }}>
             {[
               { top:-2, left:-2,   borderTop:`3px solid ${cornerCol}`, borderLeft:`3px solid ${cornerCol}`,   borderRadius:'5px 0 0 0' },
               { top:-2, right:-2,  borderTop:`3px solid ${cornerCol}`, borderRight:`3px solid ${cornerCol}`,  borderRadius:'0 5px 0 0' },
               { bottom:-2, left:-2,  borderBottom:`3px solid ${cornerCol}`, borderLeft:`3px solid ${cornerCol}`,  borderRadius:'0 0 0 5px' },
               { bottom:-2, right:-2, borderBottom:`3px solid ${cornerCol}`, borderRight:`3px solid ${cornerCol}`, borderRadius:'0 0 5px 0' },
-            ].map((s, i) => (
-              <div key={i} style={{ position:'absolute', width:28, height:28, transition:'border-color 0.2s', ...s }} />
-            ))}
-            {/* Grüner Haken bei Erkennung */}
+            ].map((s, i) => <div key={i} style={{ position:'absolute', width:28, height:28, transition:'border-color 0.2s', ...s }} />)}
             {detected && (
-              <div style={{ position:'absolute', top:'50%', left:'50%',
-                transform:'translate(-50%,-50%)', width:60, height:60, borderRadius:'50%',
-                background:'rgba(34,197,94,0.18)', display:'flex', alignItems:'center', justifyContent:'center',
-                animation:'popIn 0.18s ease' }}>
+              <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%)',
+                width:60, height:60, borderRadius:'50%', background:'rgba(34,197,94,0.18)',
+                display:'flex', alignItems:'center', justifyContent:'center', animation:'popIn 0.18s ease' }}>
                 <Icon d={icons.check} size={30} color={green} strokeWidth={2.5} />
               </div>
             )}
           </div>
         )}
-
-        {/* Hinweistext */}
         {ready && (
           <div style={{ position:'absolute', bottom:'12%', left:'50%', transform:'translateX(-50%)',
             background: detected ? 'rgba(34,197,94,0.92)' : 'rgba(0,0,0,0.55)',
             color:'#fff', fontSize:13, fontWeight:600, padding:'6px 18px', borderRadius:20,
-            whiteSpace:'nowrap', transition:'background 0.2s',
-            fontFamily:'Figtree, system-ui, sans-serif' }}>
+            whiteSpace:'nowrap', transition:'background 0.2s', fontFamily:'Figtree, system-ui, sans-serif' }}>
             {detected ? 'Dokument erkannt — Aufnehmen!' : 'Dokument in den Rahmen legen'}
           </div>
         )}
-
         {camError && (
-          <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center',
-            justifyContent:'center', padding:24 }}>
-            <div style={{ background:'#FEF2F2', borderRadius:12, padding:'20px 24px',
-              textAlign:'center', color:'#B91C1C', fontSize:14 }}>{camError}</div>
+          <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
+            <div style={{ background:'#FEF2F2', borderRadius:12, padding:'20px 24px', textAlign:'center', color:'#B91C1C', fontSize:14 }}>{camError}</div>
           </div>
         )}
       </div>
-
-      {/* Steuerleiste */}
-      <div style={{ background:'#111', display:'flex', alignItems:'center',
-        justifyContent:'space-between',
-        padding:'20px 40px',
-        paddingBottom:'calc(20px + env(safe-area-inset-bottom))' }}>
+      <div style={{ background:'#111', display:'flex', alignItems:'center', justifyContent:'space-between',
+        padding:'20px 40px', paddingBottom:'calc(20px + env(safe-area-inset-bottom))' }}>
         <button onClick={onClose} style={{ width:48, height:48, borderRadius:'50%',
           background:'rgba(255,255,255,0.15)', border:'none', cursor:'pointer',
           display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -226,17 +187,15 @@ function CameraScanner({ onCapture, onClose }) {
         <button onClick={capture} disabled={!ready} style={{
           width:74, height:74, borderRadius:'50%',
           background: detected ? green : '#fff',
-          border: `4px solid ${detected ? '#16A34A' : 'rgba(255,255,255,0.35)'}`,
-          cursor: ready ? 'pointer' : 'not-allowed',
-          transition:'background 0.2s, border-color 0.2s',
+          border:`4px solid ${detected ? '#16A34A' : 'rgba(255,255,255,0.35)'}`,
+          cursor: ready ? 'pointer' : 'not-allowed', transition:'background 0.2s, border-color 0.2s',
           boxShadow: detected ? '0 0 22px rgba(34,197,94,0.55)' : 'none',
           display:'flex', alignItems:'center', justifyContent:'center' }}>
           {detected && <Icon d={icons.check} size={28} color="#fff" strokeWidth={2.5} />}
         </button>
         <button onClick={() => setFacingMode(m => m === 'environment' ? 'user' : 'environment')}
-          style={{ width:48, height:48, borderRadius:'50%',
-            background:'rgba(255,255,255,0.15)', border:'none', cursor:'pointer',
-            display:'flex', alignItems:'center', justifyContent:'center' }}>
+          style={{ width:48, height:48, borderRadius:'50%', background:'rgba(255,255,255,0.15)',
+            border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
           <Icon d={icons.flip} size={22} color="#fff" />
         </button>
       </div>
@@ -245,40 +204,35 @@ function CameraScanner({ onCapture, onClose }) {
   );
 }
 
-// ── Hauptseite ─────────────────────────────────────────────────────────────
+function resolveType(f) {
+  if (f.type) return f.type;
+  const ext = (f.name || '').split('.').pop().toLowerCase();
+  return { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png',
+           gif:'image/gif', webp:'image/webp', pdf:'application/pdf' }[ext] || 'application/octet-stream';
+}
+
 export default function Scannen() {
   const router  = useRouter();
   const fileRef = useRef(null);
 
-  const [pages,      setPages]      = useState([]);
-  const [phase,      setPhase]      = useState('idle'); // idle|uploading|analyzing|done
-  const [error,      setError]      = useState(null);
-  const [logLines,   setLogLines]   = useState([]);
-  const [showCam,    setShowCam]    = useState(false);
+  const [pages,    setPages]    = useState([]);
+  const [phase,    setPhase]    = useState('idle');
+  const [error,    setError]    = useState(null);
+  const [logLines, setLogLines] = useState([]);
+  const [showCam,  setShowCam]  = useState(false);
 
   function addLog(msg) {
     console.log('[Scannen]', msg);
     setLogLines(prev => [...prev.slice(-29), `${new Date().toLocaleTimeString()} ${msg}`]);
   }
 
-  function resolveType(f) {
-    if (f.type) return f.type;
-    const ext = f.name.split('.').pop().toLowerCase();
-    const map = { jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png',
-                  gif:'image/gif', webp:'image/webp', pdf:'application/pdf' };
-    return map[ext] || '';
-  }
-
   function addFiles(fileList) {
     setError(null);
-    const arr = Array.from(fileList)
-      .map(f => ({ file: f, mimeType: resolveType(f) }))
+    const arr = Array.from(fileList).map(f => ({ file: f, mimeType: resolveType(f) }))
       .filter(({ mimeType }) => mimeType.startsWith('image/') || mimeType === 'application/pdf');
-    if (!arr.length) { setError('Nur Bilder oder PDFs.'); return; }
+    if (!arr.length) { setError('Nur Bilder oder PDFs erlaubt.'); return; }
     setPages(prev => [...prev, ...arr.map(({ file, mimeType }) => ({
-      file,
-      mimeType,
-      previewUrl: URL.createObjectURL(file),
+      file, mimeType, previewUrl: URL.createObjectURL(file),
     }))]);
   }
 
@@ -286,114 +240,54 @@ export default function Scannen() {
     setPages(prev => prev.filter((_, i) => i !== idx));
   }
 
-  // ── Kompletter Flow in einer Funktion — kein State-Timing-Problem ────────
   async function handleAnalyze() {
-    addLog('--- Start handleAnalyze ---');
+    addLog('--- Start ---');
     try {
-      if (!pages.length) { setError('Bitte zuerst ein Foto hinzufügen.'); addLog('Abbruch: keine Seiten'); return; }
+      if (!pages.length) { setError('Bitte zuerst ein Foto hinzufügen.'); return; }
       setError(null);
 
-      // 1. Auth
-      addLog('Prüfe Login-Status…');
-      const { data: authData, error: authErr } = await supabase.auth.getUser();
-      if (authErr) {
-        addLog(`Auth-Fehler: ${authErr.message}`);
-        setError(`Anmeldefehler: ${authErr.message}. Bitte neu einloggen.`);
-        setPhase('idle'); return;
-      }
-      const user = authData?.user;
-      if (!user) {
-        addLog('Kein User — Session abgelaufen. Redirect zu /login.');
-        setError('Sitzung abgelaufen. Du wirst zum Login weitergeleitet…');
+      addLog('Hole Session…');
+      const { data: { session }, error: sessErr } = await supabase.auth.getSession();
+      if (sessErr || !session?.access_token) {
+        addLog(`Kein Token: ${sessErr?.message || 'Session leer'}`);
+        setError('Sitzung abgelaufen. Bitte neu einloggen.');
         setTimeout(() => router.push('/login'), 1500);
         return;
       }
-      addLog(`Eingeloggt als: ${user.id.slice(0,8)}…`);
+      addLog(`Token OK: ${session.access_token.slice(0, 20)}…`);
 
-      // 2. Upload
       setPhase('uploading');
-      const uploadedUrls = [];
+      addLog(`Baue FormData mit ${pages.length} Datei(en)…`);
+      const form = new FormData();
       for (let i = 0; i < pages.length; i++) {
         const { file, mimeType } = pages[i];
-        const ext  = file.name.split('.').pop() || (mimeType === 'application/pdf' ? 'pdf' : 'jpg');
-        const path = `${user.id}/${Date.now()}_${i}.${ext}`;
-        addLog(`Upload ${i+1}/${pages.length}: ${file.name} (${(file.size/1024).toFixed(0)}KB) type=${mimeType}`);
-        const { error: upErr } = await supabase.storage
-          .from('dokumente').upload(path, file, { upsert: true, contentType: mimeType });
-        if (upErr) {
-          addLog(`Upload-Fehler: ${upErr.message}`);
-          setError(`Upload fehlgeschlagen: ${upErr.message}`);
-          setPhase('idle'); return;
-        }
-        const { data: urlData } = supabase.storage.from('dokumente').getPublicUrl(path);
-        if (!urlData?.publicUrl) {
-          addLog('Kein publicUrl zurückgegeben');
-          setError('Kein URL nach Upload erhalten.');
-          setPhase('idle'); return;
-        }
-        uploadedUrls.push(urlData.publicUrl);
-        addLog(`Upload OK: ${urlData.publicUrl.split('/').pop()}`);
+        const blob = file.type ? file : new Blob([file], { type: mimeType });
+        const filename = file.name || `scan_${Date.now()}_${i}.jpg`;
+        form.append('files', blob, filename);
+        addLog(`Datei ${i+1}: ${filename} (${(file.size/1024).toFixed(0)}KB, ${mimeType})`);
       }
 
-      // 3. DB Insert
-      addLog('Dokument-Zeile in DB anlegen…');
-      const { data: dok, error: insertErr } = await supabase
-        .from('dokumente')
-        .insert({
-          user_id:       user.id,
-          dateiname:     pages[0].file.name,
-          bild_url:      uploadedUrls[0],
-          bild_urls:     uploadedUrls,
-          analysiert:    false,
-          dringlichkeit: 'Zur Kenntnis',
-        })
-        .select('id')
-        .single();
-
-      if (insertErr) {
-        addLog(`INSERT-FEHLER CODE: ${insertErr.code || '?'}`);
-        addLog(`INSERT-FEHLER MSG: ${insertErr.message || '?'}`);
-        addLog(`INSERT-FEHLER DETAILS: ${insertErr.details || '?'}`);
-        addLog(`INSERT-FEHLER HINT: ${insertErr.hint || '?'}`);
-        setError(`Datenbank-Fehler [${insertErr.code}]: ${insertErr.message}`);
-        setPhase('idle'); return;
-      }
-      if (!dok?.id) {
-        addLog('Insert ohne Fehler, aber KEINE ID im Ergebnis!');
-        addLog(`dok-Objekt war: ${JSON.stringify(dok)}`);
-        setError('Unerwartet: Dokument wurde angelegt, aber ohne ID zurückgegeben.');
-        setPhase('idle'); return;
-      }
-
-      // dokumentId ist eine lokale const — KEIN React State
-      const dokumentId = dok.id;
-      addLog(`✓ Dokument-ID erhalten: ${dokumentId}`);
-
-      // 4. Analyse
       setPhase('analyzing');
-      addLog(`POST /api/analyze mit dokumentId="${dokumentId}"`);
-
+      addLog('Sende an /api/analyze…');
       let res;
       try {
         res = await fetch('/api/analyze', {
           method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ dokumentId }),
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+          body:    form,
         });
       } catch (fetchErr) {
-        addLog(`Netzwerkfehler beim fetch: ${fetchErr.message}`);
+        addLog(`Netzwerkfehler: ${fetchErr.message}`);
         setError(`Netzwerkfehler: ${fetchErr.message}`);
         setPhase('idle'); return;
       }
 
-      const result = await res.json().catch((e) => {
-        addLog(`Response konnte nicht als JSON gelesen werden: ${e.message}`);
-        return {};
-      });
-      addLog(`Antwort: HTTP ${res.status} — ${JSON.stringify(result).slice(0, 150)}`);
+      let result = {};
+      try { result = await res.json(); } catch {}
+      addLog(`HTTP ${res.status} — ${JSON.stringify(result).slice(0, 200)}`);
 
       if (!res.ok) {
-        setError(`Analyse fehlgeschlagen (HTTP ${res.status}): ${result.error || 'Unbekannter Fehler'}`);
+        setError(`Fehler (${res.status}): ${result.error || 'Unbekannt'}`);
         setPhase('idle'); return;
       }
 
@@ -401,11 +295,9 @@ export default function Scannen() {
       setPhase('done');
       setTimeout(() => router.push('/aufgaben'), 1200);
 
-    } catch (unexpectedErr) {
-      // Globaler Fallback — JEDER unerwartete Fehler landet garantiert hier
-      addLog(`UNERWARTETER FEHLER: ${unexpectedErr.message}`);
-      addLog(`Stack: ${unexpectedErr.stack?.slice(0, 200) || 'kein stack'}`);
-      setError(`Unerwarteter Fehler: ${unexpectedErr.message}`);
+    } catch (err) {
+      addLog(`UNERWARTETER FEHLER: ${err.message}`);
+      setError(`Unerwarteter Fehler: ${err.message}`);
       setPhase('idle');
     }
   }
@@ -429,12 +321,10 @@ export default function Scannen() {
       <div style={{ minHeight:'100dvh', background:'#F8F9FA',
         fontFamily:'Figtree, system-ui, sans-serif', paddingBottom:80 }}>
 
-        {/* Header */}
         <div style={{ position:'sticky', top:0, zIndex:40, background:'#1F3A52',
           padding:'12px 16px', paddingTop:'calc(12px + env(safe-area-inset-top))',
           display:'flex', alignItems:'center', gap:12 }}>
-          <button onClick={() => router.back()}
-            style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}>
+          <button onClick={() => router.back()} style={{ background:'none', border:'none', cursor:'pointer', padding:4 }}>
             <Icon d={icons.back} size={20} color="#fff" />
           </button>
           <span style={{ fontWeight:700, color:'#fff', fontSize:17 }}>Brief scannen</span>
@@ -454,13 +344,10 @@ export default function Scannen() {
             <div style={{ background:'#F0FDF4', border:'1px solid #86EFAC', borderRadius:10,
               padding:'12px 14px', marginBottom:16, display:'flex', gap:10, alignItems:'center' }}>
               <Icon d={icons.check} size={16} color="#166534" />
-              <p style={{ margin:0, fontSize:13, color:'#166534' }}>
-                Analyse abgeschlossen — Aufgaben werden geladen…
-              </p>
+              <p style={{ margin:0, fontSize:13, color:'#166534' }}>Analyse abgeschlossen — Aufgaben werden geladen…</p>
             </div>
           )}
 
-          {/* Upload-Zone */}
           {phase !== 'done' && (
             <div style={{ border:'2px dashed #CBD5E1', borderRadius:16, background:'#fff',
               padding:'28px 20px', textAlign:'center', marginBottom:20 }}>
@@ -478,8 +365,7 @@ export default function Scannen() {
                 <button onClick={() => setShowCam(true)} disabled={busy}
                   style={{ padding:'11px 22px', borderRadius:10, border:'none',
                     background: busy ? '#CBD5E1' : '#1F3A52', color:'#fff',
-                    fontSize:14, fontWeight:600, cursor: busy ? 'not-allowed' : 'pointer',
-                    fontFamily:'inherit' }}>
+                    fontSize:14, fontWeight:600, cursor: busy ? 'not-allowed' : 'pointer', fontFamily:'inherit' }}>
                   Aufnehmen
                 </button>
                 <button onClick={() => fileRef.current?.click()} disabled={busy}
@@ -494,7 +380,6 @@ export default function Scannen() {
             </div>
           )}
 
-          {/* Thumbnails */}
           {pages.length > 0 && (
             <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:20 }}>
               {pages.map((p, idx) => (
@@ -518,7 +403,7 @@ export default function Scannen() {
                   )}
                   <p style={{ margin:'4px 0 0', fontSize:10, color:'#6B7280', textAlign:'center',
                     overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                    {idx+1}. {p.file.name.slice(0, 12)}
+                    {idx+1}. {(p.file.name || 'Scan').slice(0, 12)}
                   </p>
                 </div>
               ))}
@@ -536,14 +421,12 @@ export default function Scannen() {
           )}
 
           {phase === 'uploading' && (
-            <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:10,
-              padding:'12px 14px', marginBottom:16 }}>
-              <p style={{ margin:0, fontSize:13, color:'#1D4ED8' }}>Fotos werden hochgeladen…</p>
+            <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:10, padding:'12px 14px', marginBottom:16 }}>
+              <p style={{ margin:0, fontSize:13, color:'#1D4ED8' }}>Dateien werden hochgeladen…</p>
             </div>
           )}
           {phase === 'analyzing' && (
-            <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:10,
-              padding:'12px 14px', marginBottom:16 }}>
+            <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:10, padding:'12px 14px', marginBottom:16 }}>
               <p style={{ margin:0, fontSize:13, color:'#1D4ED8' }}>KI analysiert das Dokument (10–20 Sek.)…</p>
             </div>
           )}
@@ -563,7 +446,6 @@ export default function Scannen() {
             </button>
           )}
 
-          {/* Debug-Log — immer sichtbar */}
           {logLines.length > 0 && (
             <div style={{ marginTop:16, background:'#1E1E2E', borderRadius:10,
               padding:'10px 14px', maxHeight:200, overflowY:'auto' }}>
