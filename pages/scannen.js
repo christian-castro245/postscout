@@ -215,6 +215,19 @@ export default function Scannen() {
   const [error,    setError]    = useState(null);
   const [logLines, setLogLines] = useState([]);
   const [showCam,  setShowCam]  = useState(false);
+  const [jwt,      setJwt]      = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) { router.push('/login'); return; }
+      setJwt(session.access_token);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) { router.push('/login'); return; }
+      setJwt(session.access_token);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   function addLog(msg) {
     console.log('[Scannen]', msg);
@@ -241,15 +254,14 @@ export default function Scannen() {
       if (!pages.length) { setError('Bitte zuerst ein Foto hinzufügen.'); return; }
       setError(null);
 
-      addLog('Hole Session…');
-      const { data: { session }, error: sessErr } = await supabase.auth.getSession();
-      if (sessErr || !session?.access_token) {
-        addLog(`Kein Token: ${sessErr?.message || 'Session leer'}`);
+      addLog('Prüfe JWT…');
+      if (!jwt) {
+        addLog('Kein JWT — weiterleiten zu Login');
         setError('Sitzung abgelaufen. Bitte neu einloggen.');
         setTimeout(() => router.push('/login'), 1500);
         return;
       }
-      addLog(`Token OK: ${session.access_token.slice(0, 20)}…`);
+      addLog(`JWT OK: ${jwt.slice(0, 20)}…`);
 
       setPhase('uploading');
       addLog(`Baue FormData mit ${pages.length} Datei(en)…`);
@@ -268,7 +280,7 @@ export default function Scannen() {
       try {
         res = await fetch('/api/analyze', {
           method:  'POST',
-          headers: { 'Authorization': `Bearer ${session.access_token}` },
+          headers: { 'Authorization': `Bearer ${jwt}` },
           body:    form,
         });
       } catch (fetchErr) {
