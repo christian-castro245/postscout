@@ -218,13 +218,22 @@ export default function Scannen() {
   const [jwt,      setJwt]      = useState(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) { router.push('/login'); return; }
-      setJwt(session.access_token);
-    });
+    async function initAuth() {
+      // getSession() liest localStorage (kein Netzwerk-Call)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) { setJwt(session.access_token); return; }
+      // Fallback: getUser() validiert server-seitig und refresht expired tokens
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { router.push('/'); return; }
+      // Nach getUser() hat Supabase das Token refreshed — nochmal getSession()
+      const { data: { session: s2 } } = await supabase.auth.getSession();
+      if (s2?.access_token) setJwt(s2.access_token);
+      else router.push('/');
+    }
+    initAuth();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) { router.push('/login'); return; }
-      setJwt(session.access_token);
+      if (session?.access_token) setJwt(session.access_token);
+      else setJwt(null);
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -258,7 +267,7 @@ export default function Scannen() {
       if (!jwt) {
         addLog('Kein JWT — weiterleiten zu Login');
         setError('Sitzung abgelaufen. Bitte neu einloggen.');
-        setTimeout(() => router.push('/login'), 1500);
+        setTimeout(() => router.push('/'), 1500);
         return;
       }
       addLog(`JWT OK: ${jwt.slice(0, 20)}…`);
