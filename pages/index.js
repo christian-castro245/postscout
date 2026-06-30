@@ -897,8 +897,8 @@ export default function Home() {
                     <div className="empty-state">
                       {Icons.users}
                       <p>Keine Familienmitglieder</p>
-                      <p className="caption" style={{maxWidth:220,textAlign:'center',lineHeight:1.5}}>Füge Familienmitglieder unter Menü → Familienfreigabe hinzu.</p>
-                      <button className="btn-ghost" onClick={() => setMenuOpen(true)}>Familienfreigabe einrichten</button>
+                      <p className="caption" style={{maxWidth:220,textAlign:'center',lineHeight:1.5}}>Füge Familienmitglieder über das Menü → Familie hinzu.</p>
+                      <button className="btn-ghost" onClick={() => setMenuOpen(true)}>Familie einrichten</button>
                     </div>
                   ) : (
                     <>
@@ -1134,7 +1134,7 @@ export default function Home() {
                 {[
                   { id:'archiv',       label:'Archiv',           desc:`${docs.length} Dokumente`,                               icon: Icons.archive, icoBg:'#E6F0E9', icoColor:'#2E5A3C' },
                   ...(isOwner ? [
-                    { id:'freigaben',    label:'Familienfreigabe', desc:`${familyMembers.filter(m=>m.aktiv).length} aktive Zugänge`, icon: Icons.users,   icoBg:'#FBF0E8', icoColor:'#C2410C', href:'/profil#freigaben' },
+                    { id:'familie',       label:'Familie',          desc:`${familyMembers.filter(m=>m.aktiv).length} aktive Zugänge`, icon: Icons.users,   icoBg:'#FBF0E8', icoColor:'#C2410C' },
                     { id:'kontakte',     label:'Kontakte',         desc:'Arzt, Anwalt & Co.',                                    icon: Icons.contact, icoBg:'#EAF0F4', icoColor:'#1F3A52', href:'/profil' },
                     { id:'export',       label:'Export',           desc:'PDF & CSV',                                             icon: Icons.upload,  icoBg:'#FBF0DC', icoColor:'#8A5A12' },
                     { id:'profil',       label:'Profil',           desc:'Persönliche Daten',                                     icon: Icons.user,    icoBg:'#F4F2EC', icoColor:'#7C786E', href:'/profil' },
