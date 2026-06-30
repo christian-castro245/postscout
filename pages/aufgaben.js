@@ -88,31 +88,44 @@ const URGENCY = {
 function BottomNav({ active }) {
   const router = useRouter();
   const items = [
-    { id: 'home',     label: 'Start',    icon: icons.home,    path: '/' },
-    { id: 'aufgaben', label: 'Aufgaben', icon: icons.fileText, path: '/aufgaben' },
-    { id: 'scannen',  label: 'Scannen',  icon: icons.camera,  path: '/scannen' },
-    { id: 'archiv',   label: 'Archiv',   icon: icons.archive, path: '/archiv' },
-    { id: 'familie',  label: 'Familie',  icon: icons.users,   path: '/familie' },
+    { id: 'home',     label: 'Start',    icon: icons.home,     path: '/' },
+    { id: 'aufgaben', label: 'Aufgaben', icon: icons.fileText,  path: '/aufgaben' },
+    { id: 'scannen',  label: 'Scannen',  icon: icons.camera,   path: '/scannen' },
+    { id: 'archiv',   label: 'Archiv',   icon: icons.archive,  path: '/archiv' },
+    { id: 'familie',  label: 'Familie',  icon: icons.users,    path: '/familie' },
   ];
   return (
     <nav style={{
       position: 'fixed', bottom: 0, left: 0, right: 0,
-      background: '#fff', borderTop: '1px solid #E5E7EB',
-      display: 'flex', zIndex: 50,
-      paddingBottom: 'env(safe-area-inset-bottom)',
+      background: 'rgba(251,250,248,0.97)',
+      backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+      borderTop: '1px solid #EFEDE6',
+      display: 'flex', zIndex: 100,
+      padding: `8px 4px max(20px, env(safe-area-inset-bottom))`,
     }}>
-      {items.map(it => (
-        <button key={it.id} onClick={() => router.push(it.path)}
-          style={{
-            flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-            gap: 3, padding: '10px 4px 8px', border: 'none', background: 'none',
-            color: active === it.id ? '#1F3A52' : '#9CA3AF', cursor: 'pointer',
-            fontSize: 10, fontFamily: 'inherit', fontWeight: active === it.id ? 600 : 400,
-          }}>
-          <Icon d={it.icon} size={22} />
-          {it.label}
-        </button>
-      ))}
+      {items.map(it => {
+        const isActive = active === it.id;
+        return (
+          <button key={it.id} onClick={() => router.push(it.path)}
+            style={{
+              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+              gap: 3, padding: '2px 4px', border: 'none', background: 'none',
+              color: isActive ? '#1F3A52' : '#B0ADA4', cursor: 'pointer',
+              fontSize: 10, fontFamily: 'inherit', fontWeight: isActive ? 700 : 500,
+              transition: 'color 150ms',
+            }}>
+            <span style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 48, height: 30, borderRadius: 15,
+              background: isActive ? '#EAF0F4' : 'transparent',
+              transition: 'background 150ms',
+            }}>
+              <Icon d={it.icon} size={20} />
+            </span>
+            {it.label}
+          </button>
+        );
+      })}
     </nav>
   );
 }
