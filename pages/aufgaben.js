@@ -77,11 +77,11 @@ function formatDate(raw) {
 
 // ── Urgency config ──────────────────────────────────────────────────────────
 const URGENCY = {
-  'Überfällig':      { color: '#B91C1C', bg: '#FEF2F2', border: '#FCA5A5', dot: '#EF4444', rank: 0 },
-  'Dringend':        { color: '#C2410C', bg: '#FFF7ED', border: '#FED7AA', dot: '#F97316', rank: 1 },
-  'Mittelfristig':   { color: '#B45309', bg: '#FFFBEB', border: '#FDE68A', dot: '#F59E0B', rank: 2 },
-  'Zur Kenntnis':    { color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE', dot: '#3B82F6', rank: 3 },
-  'Werbung/Ignorieren': { color: '#6B7280', bg: '#F9FAFB', border: '#E5E7EB', dot: '#9CA3AF', rank: 4 },
+  'ueberfaellig': { label: 'Überfällig',        color: '#B91C1C', bg: '#FEF2F2', border: '#FCA5A5', dot: '#EF4444', rank: 0 },
+  'hoch':         { label: 'Dringend',           color: '#C2410C', bg: '#FFF7ED', border: '#FED7AA', dot: '#F97316', rank: 1 },
+  'mittel':       { label: 'Mittelfristig',      color: '#B45309', bg: '#FFFBEB', border: '#FDE68A', dot: '#F59E0B', rank: 2 },
+  'niedrig':      { label: 'Zur Kenntnis',       color: '#1D4ED8', bg: '#EFF6FF', border: '#BFDBFE', dot: '#3B82F6', rank: 3 },
+  'ignorieren':   { label: 'Werbung/Ignorieren', color: '#6B7280', bg: '#F9FAFB', border: '#E5E7EB', dot: '#9CA3AF', rank: 4 },
 };
 
 // ── Bottom Nav ──────────────────────────────────────────────────────────────
@@ -281,7 +281,7 @@ function ReplyModal({ task, dokument, onClose }) {
 // ── Task Card ───────────────────────────────────────────────────────────────
 function TaskCard({ task, dokument, onToggle, onDateEdit, onReply, onViewDoc }) {
   const [expanded, setExpanded] = useState(false);
-  const urg = URGENCY[task.dringlichkeit] || URGENCY['Zur Kenntnis'];
+  const urg = URGENCY[task.dringlichkeit] || URGENCY['niedrig'];
   const dateInfo = task.faelligkeitsdatum ? formatDate(task.faelligkeitsdatum) : null;
   const needsDate = !dateInfo && task.faelligkeitsdatum; // had a value but couldn't parse
   const hasReply = task.antwort_erforderlich || task.typ === 'antwort';
@@ -312,7 +312,7 @@ function TaskCard({ task, dokument, onToggle, onDateEdit, onReply, onViewDoc }) 
           <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:5,flexWrap:'wrap'}}>
             <span style={{
               fontSize:10,fontWeight:700,color:urg.color,letterSpacing:'0.08em',textTransform:'uppercase',
-            }}>{task.dringlichkeit}</span>
+            }}>{urg.label || task.dringlichkeit}</span>
             {dokument?.absender && (
               <span style={{fontSize:11,color:'#6B7280',background:'#F3F4F6',padding:'1px 6px',borderRadius:4}}>
                 {dokument.absender}
@@ -467,7 +467,7 @@ export default function Aufgaben() {
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
-      if (!data?.user) { router.push('/login'); return; }
+      if (!data?.user) { router.push('/'); return; }
       setUser(data.user);
       loadTasks(data.user.id);
     });
@@ -494,7 +494,7 @@ export default function Aufgaben() {
         allTasks.push({
           _id: `${dok.id}_${i}`,
           dokument_id: dok.id,
-          dringlichkeit: dok.dringlichkeit || 'Zur Kenntnis',
+          dringlichkeit: dok.dringlichkeit || 'niedrig',
           erledigt: t.erledigt || false,
           beschreibung: t.beschreibung || t.text || t,
           faelligkeitsdatum: t.faelligkeitsdatum || t.datum || dok.faelligkeitsdatum || null,
@@ -510,7 +510,7 @@ export default function Aufgaben() {
         allTasks.push({
           _id: `${dok.id}_reply`,
           dokument_id: dok.id,
-          dringlichkeit: dok.dringlichkeit || 'Dringend',
+          dringlichkeit: dok.dringlichkeit || 'hoch',
           erledigt: false,
           beschreibung: `Antwort an ${dok.absender || 'Absender'} erforderlich`,
           faelligkeitsdatum: dok.faelligkeitsdatum || null,
@@ -523,8 +523,8 @@ export default function Aufgaben() {
 
     // Sort by urgency rank, then by date
     allTasks.sort((a, b) => {
-      const rankA = (URGENCY[a.dringlichkeit] || URGENCY['Zur Kenntnis']).rank;
-      const rankB = (URGENCY[b.dringlichkeit] || URGENCY['Zur Kenntnis']).rank;
+      const rankA = (URGENCY[a.dringlichkeit] || URGENCY['niedrig']).rank;
+      const rankB = (URGENCY[b.dringlichkeit] || URGENCY['niedrig']).rank;
       if (rankA !== rankB) return rankA - rankB;
       const dA = parseDate(a.faelligkeitsdatum);
       const dB = parseDate(b.faelligkeitsdatum);
@@ -575,15 +575,15 @@ export default function Aufgaben() {
   const grouped = {};
   if (filter === 'offen' || filter === 'alle') {
     visibleTasks.forEach(t => {
-      const key = t.dringlichkeit || 'Zur Kenntnis';
+      const key = t.dringlichkeit || 'niedrig';
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push(t);
     });
   }
 
-  const urgencyOrder = ['Überfällig', 'Dringend', 'Mittelfristig', 'Zur Kenntnis', 'Werbung/Ignorieren'];
+  const urgencyOrder = ['ueberfaellig', 'hoch', 'mittel', 'niedrig', 'ignorieren'];
   const openCount = tasks.filter(t => !t.erledigt).length;
-  const urgentCount = tasks.filter(t => !t.erledigt && ['Überfällig','Dringend'].includes(t.dringlichkeit)).length;
+  const urgentCount = tasks.filter(t => !t.erledigt && ['ueberfaellig','hoch'].includes(t.dringlichkeit)).length;
 
   return (
     <>
@@ -684,7 +684,7 @@ export default function Aufgaben() {
                       width:8,height:8,borderRadius:'50%',background:cfg.dot,flexShrink:0,
                     }}/>
                     <span style={{fontSize:11,fontWeight:800,color:cfg.color,letterSpacing:'0.1em',textTransform:'uppercase'}}>
-                      {urg}
+                      {cfg.label}
                     </span>
                     <span style={{fontSize:11,color:'#9CA3AF'}}>{group.length} offen</span>
                   </div>

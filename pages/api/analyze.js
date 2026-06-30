@@ -199,21 +199,40 @@ export default async function handler(req, res) {
   }
 
   const safeDate = v => parseGermanDate(v);
+
+  const DRING_MAP = {
+    'Überfällig': 'ueberfaellig',
+    'Dringend': 'hoch',
+    'Mittelfristig': 'mittel',
+    'Zur Kenntnis': 'niedrig',
+    'Werbung/Ignorieren': 'ignorieren',
+  };
+  const dring = DRING_MAP[parsed.dringlichkeit] || 'niedrig';
+
+  const aufgaben = (parsed.aufgaben || []).map(t => ({
+    beschreibung:         t.beschreibung || '',
+    faelligkeitsdatum:    safeDate(t.faelligkeitsdatum),
+    empfehlung:           t.empfehlung || null,
+    antwort_erforderlich: Boolean(t.antwort_erforderlich),
+    erledigt:             false,
+  }));
+
   const cleanedDoc = {
     titel:                parsed.titel || 'Dokument',
     absender:             parsed.absender || null,
     absender_email:       parsed.absender_email || null,
-    dringlichkeit:        parsed.dringlichkeit || 'Zur Kenntnis',
+    dringlichkeit:        dring,
     zusammenfassung:      parsed.zusammenfassung || '',
     faelligkeitsdatum:    safeDate(parsed.faelligkeitsdatum),
     antwort_erforderlich: Boolean(parsed.antwort_erforderlich),
     analysiert:           true,
-    aufgaben: (parsed.aufgaben || []).map(t => ({
-      beschreibung:        t.beschreibung || '',
-      faelligkeitsdatum:   safeDate(t.faelligkeitsdatum),
-      empfehlung:          t.empfehlung || null,
-      antwort_erforderlich: Boolean(t.antwort_erforderlich),
-      erledigt:            false,
+    aufgaben,
+    todos: aufgaben.map(t => ({
+      aufgabe:      t.beschreibung,
+      frist:        t.faelligkeitsdatum,
+      dringlichkeit: dring,
+      status:       'offen',
+      erledigt:     false,
     })),
   };
 
