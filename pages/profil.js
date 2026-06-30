@@ -13,12 +13,21 @@ const IMAP_PROVIDERS = [
 const KONTAKT_KATEGORIEN = ['Arzt', 'Anwalt', 'Steuerberater', 'Hausmeister', 'Nachbar', 'Behörde', 'Handwerker', 'Sonstiges']
 
 const TABS = [
-  { id: 'person',   label: 'Person' },
-  { id: 'bank',     label: 'Bank' },
-  { id: 'mieter',   label: 'Mieter' },
-  { id: 'kontakte', label: 'Kontakte' },
-  { id: 'imap',     label: 'E-Mail' },
+  { id: 'person',    label: 'Person' },
+  { id: 'bank',      label: 'Bank' },
+  { id: 'mieter',    label: 'Mieter' },
+  { id: 'kontakte',  label: 'Kontakte' },
+  { id: 'imap',      label: 'E-Mail' },
+  { id: 'freigaben', label: 'Freigaben' },
 ]
+
+const PERM_OPTS = [
+  { value: 'lesen',   label: 'Nur lesen' },
+  { value: 'abhaken', label: 'Lesen + Abhaken' },
+  { value: 'notizen', label: 'Lesen + Abhaken + Notizen' },
+]
+
+function randomToken() { return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) }
 
 // ── Icons ────────────────────────────────────────────────────────────────────
 const BackIcon = () => (
@@ -120,6 +129,7 @@ export default function Profil() {
   const [imapTesting, setImapTesting] = useState(false)
 
   // Person
+  const [anrede, setAnrede]             = useState('du')
   const [vorname, setVorname]           = useState('')
   const [nachname, setNachname]         = useState('')
   const [strasse, setStrasse]           = useState('')
@@ -154,6 +164,18 @@ export default function Profil() {
   const [mOrt, setMOrt]             = useState('')
   const [mObjekt, setMObjekt]       = useState('')
 
+  // Freigaben
+  const [familyMembers, setFamilyMembers]   = useState([])
+  const [inviteEmail, setInviteEmail]       = useState('')
+  const [invitePerm, setInvitePerm]         = useState('abhaken')
+  const [inviteLoading, setInviteLoading]   = useState(false)
+  const [inviteMsg, setInviteMsg]           = useState(null)
+  const [qrToken, setQrToken]               = useState(null)
+  const [showQr, setShowQr]                 = useState(false)
+  const [scanTokenUrl, setScanTokenUrl]     = useState(null)
+  const [scanTokenLoading, setScanTokenLoading] = useState(false)
+  const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
+
   // Kontakte
   const [kontakte, setKontakte] = useState([])
   const [kKat, setKKat]         = useState('Arzt')
@@ -164,6 +186,9 @@ export default function Profil() {
   const [kNotiz, setKNotiz]     = useState('')
 
   useEffect(() => {
+    const hash = window.location.hash.slice(1)
+    if (hash && TABS.find(t => t.id === hash)) setActiveTab(hash)
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       if (session) {
@@ -171,6 +196,8 @@ export default function Profil() {
         loadMieter(session.user.id)
         loadImap(session.user.id)
         loadKontakte(session.user.id)
+        loadFamilyMembers(session.user.id)
+        loadScanToken(session.user.id)
       }
     })
   }, [])
@@ -178,12 +205,24 @@ export default function Profil() {
   async function loadProfil(uid) {
     const { data } = await supabase.from('profiles').select('*').eq('id', uid).single()
     if (!data) return
+    setAnrede(data.anrede||'du')
     setVorname(data.vorname||''); setNachname(data.nachname||'')
     setStrasse(data.strasse||''); setHausnummer(data.hausnummer||'')
     setPlz(data.plz||''); setOrt(data.ort||'')
     setGeburtsdatum(data.geburtsdatum||''); setTelefon(data.telefon||'')
     setSteuerId(data.steuer_id||''); setBankName(data.bank_name||'')
     setIban(data.iban||''); setBic(data.bic||'')
+  }
+  async function loadFamilyMembers(uid) {
+    const { data } = await supabase.from('familien_zugang')
+      .select('id,mitglied_email,berechtigung,aktiv,erstellt_am')
+      .eq('inhaber_id', uid).order('erstellt_am', { ascending: false })
+    setFamilyMembers(data || [])
+  }
+  async function loadScanToken(uid) {
+    const { data } = await supabase.from('scan_tokens')
+      .select('token').eq('inhaber_id', uid).eq('aktiv', true).single()
+    if (data) setScanTokenUrl(`${appUrl}/scan-only?token=${data.token}`)
   }
   async function loadMieter(uid) {
     const { data } = await supabase.from('mieter').select('*').eq('user_id', uid).order('nachname')
@@ -208,12 +247,57 @@ export default function Profil() {
   async function saveProfil() {
     setSaving(true)
     const { error } = await supabase.from('profiles').update({
-      vorname, nachname, strasse, hausnummer, plz, ort,
+      anrede, vorname, nachname, strasse, hausnummer, plz, ort,
       geburtsdatum: geburtsdatum||null, telefon,
       steuer_id: steuerId, bank_name: bankName, iban, bic,
     }).eq('id', session.user.id)
     showMsg(error ? error.message : 'Gespeichert', !!error)
     setSaving(false)
+  }
+
+  async function sendInvite() {
+    setInviteLoading(true); setInviteMsg(null)
+    const { error } = await supabase.from('familien_zugang').insert({
+      inhaber_id: session.user.id, mitglied_email: inviteEmail,
+      berechtigung: invitePerm, aktiv: false,
+    })
+    if (error) setInviteMsg({ text: error.message, err: true })
+    else { setInviteMsg({ text: 'Einladung gesendet!', err: false }); setInviteEmail(''); loadFamilyMembers(session.user.id) }
+    setInviteLoading(false)
+  }
+
+  async function generateQR() {
+    const token = randomToken() + randomToken()
+    const { error } = await supabase.from('familien_zugang').insert({
+      inhaber_id: session.user.id, mitglied_email: null, berechtigung: invitePerm,
+      aktiv: false, einladungs_token: token,
+    })
+    if (!error) { setQrToken(`${appUrl}/join?token=${token}`); setShowQr(true) }
+  }
+
+  async function updatePermission(id, berechtigung) {
+    await supabase.from('familien_zugang').update({ berechtigung }).eq('id', id)
+    loadFamilyMembers(session.user.id)
+  }
+
+  async function revokeAccess(id) {
+    if (!confirm('Zugang wirklich entziehen?')) return
+    await supabase.from('familien_zugang').delete().eq('id', id)
+    loadFamilyMembers(session.user.id)
+  }
+
+  async function generateScanToken() {
+    setScanTokenLoading(true)
+    const token = randomToken() + randomToken()
+    await supabase.from('scan_tokens').insert({ inhaber_id: session.user.id, token, label: 'Scan-Link', aktiv: true })
+    setScanTokenUrl(`${appUrl}/scan-only?token=${token}`)
+    setScanTokenLoading(false)
+  }
+
+  async function deactivateScanToken() {
+    if (!confirm('Scan-Link wirklich deaktivieren?')) return
+    await supabase.from('scan_tokens').update({ aktiv: false }).eq('inhaber_id', session.user.id)
+    setScanTokenUrl(null)
   }
 
   async function saveImap() {
@@ -331,6 +415,17 @@ export default function Profil() {
             <div>
               <Card>
                 <SectionLabel>Persönliche Daten</SectionLabel>
+                <div style={{marginBottom:16}}>
+                  <label style={{fontSize:11,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',color:'#B6B2A6',display:'block',marginBottom:8}}>Anrede</label>
+                  <div style={{display:'flex',gap:6}}>
+                    {['du','Herr','Frau'].map(opt => (
+                      <button key={opt} onClick={() => setAnrede(opt)}
+                        style={{flex:1,padding:'9px 6px',borderRadius:11,border:`1.5px solid ${anrede===opt?'#1F3A52':'#E0DDD3'}`,background:anrede===opt?'#1F3A52':'#F4F2EC',color:anrede===opt?'#fff':'#7C786E',fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'inherit',transition:'all 120ms'}}>
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Row>
                   <Field label="Vorname" value={vorname} onChange={setVorname} autoComplete="given-name" placeholder="Max"/>
                   <Field label="Nachname" value={nachname} onChange={setNachname} autoComplete="family-name" placeholder="Mustermann"/>
@@ -466,6 +561,106 @@ export default function Profil() {
                 <Field label="Telefon" type="tel" value={kTelefon} onChange={v => handleTel(v, setKTelefon)} inputMode="tel" placeholder="+49 208 …"/>
                 <Field label="Notiz" value={kNotiz} onChange={setKNotiz} placeholder="Mein Hausarzt seit 2010"/>
                 <PrimaryBtn onClick={addKontakt} disabled={!kName} icon={<PlusIcon/>}>Kontakt hinzufügen</PrimaryBtn>
+              </Card>
+            </div>
+          )}
+
+          {/* ── FREIGABEN ── */}
+          {activeTab === 'freigaben' && (
+            <div>
+              <Card style={{marginBottom:12}}>
+                <SectionLabel>Mitglied einladen</SectionLabel>
+                <Field label="E-Mail-Adresse" type="email" value={inviteEmail} onChange={setInviteEmail} placeholder="familie@beispiel.de"/>
+                <div style={{marginBottom:12}}>
+                  <label style={{fontSize:11,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',color:'#B6B2A6',display:'block',marginBottom:8}}>Berechtigung</label>
+                  {PERM_OPTS.map(p => (
+                    <label key={p.value} onClick={() => setInvitePerm(p.value)}
+                      style={{display:'flex',alignItems:'center',gap:10,padding:'9px 10px',borderRadius:11,border:`1.5px solid ${invitePerm===p.value?'#1F3A52':'#E0DDD3'}`,background:invitePerm===p.value?'#F7FAFB':'transparent',marginBottom:6,cursor:'pointer',transition:'all 120ms'}}>
+                      <div style={{width:17,height:17,borderRadius:'50%',border:`2px solid ${invitePerm===p.value?'#1F3A52':'#E0DDD3'}`,background:invitePerm===p.value?'#1F3A52':'transparent',flexShrink:0,transition:'all 120ms'}}/>
+                      <span style={{fontSize:14,fontWeight:600,color:'#1A1712'}}>{p.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {inviteMsg && (
+                  <div style={{borderRadius:11,padding:'10px 13px',fontSize:13,marginBottom:10,fontWeight:500,background:inviteMsg.err?'#FBEAE7':'#E9F0E9',color:inviteMsg.err?'#B3402C':'#2E7D46',border:`1px solid ${inviteMsg.err?'#f5c0b6':'#b8d9c0'}`}}>
+                    {inviteMsg.text}
+                  </div>
+                )}
+                <PrimaryBtn onClick={sendInvite} loading={inviteLoading} disabled={!inviteEmail||inviteLoading}>
+                  Einladen
+                </PrimaryBtn>
+              </Card>
+
+              {showQr && qrToken && (
+                <Card style={{marginBottom:12,textAlign:'center'}}>
+                  <SectionLabel>QR-Code</SectionLabel>
+                  <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&color=1F3A52&data=${encodeURIComponent(qrToken)}`}
+                    alt="QR" style={{borderRadius:8,border:'1px solid #EFEDE6',width:180,height:180,marginBottom:8}}/>
+                  <div style={{fontSize:11,color:'#9A968B',wordBreak:'break-all',marginBottom:10}}>{qrToken}</div>
+                  <button onClick={() => setShowQr(false)}
+                    style={{padding:'7px 16px',borderRadius:11,border:'1px solid #E0DDD3',background:'transparent',color:'#7C786E',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>
+                    Schließen
+                  </button>
+                </Card>
+              )}
+
+              {familyMembers.length > 0 && (
+                <Card style={{marginBottom:12}}>
+                  <SectionLabel>Aktueller Zugang</SectionLabel>
+                  {familyMembers.map(m => (
+                    <div key={m.id} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 0',borderBottom:'1px solid #EFEDE6'}}>
+                      <div style={{width:36,height:36,borderRadius:'50%',background:m.aktiv?'#1F3A52':'#EAF0F4',display:'flex',alignItems:'center',justifyContent:'center',color:m.aktiv?'#fff':'#1F3A52',fontSize:13,fontWeight:700,flexShrink:0}}>
+                        {(m.mitglied_email||'?')[0].toUpperCase()}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.mitglied_email||'QR-Code-Einladung'}</div>
+                        <span style={{fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:20,background:m.aktiv?'#E9F0E9':'#FBF4E6',color:m.aktiv?'#2E7D46':'#8A5A12'}}>
+                          {m.aktiv?'✓ Aktiv':'⏳ Ausstehend'} · {PERM_OPTS.find(p=>p.value===m.berechtigung)?.label||m.berechtigung}
+                        </span>
+                      </div>
+                      <select value={m.berechtigung} onChange={e => updatePermission(m.id, e.target.value)}
+                        style={{fontSize:12,padding:'4px 8px',borderRadius:11,border:'1px solid #E0DDD3',background:'#fff',color:'#1A1712',cursor:'pointer',fontFamily:'inherit'}}>
+                        {PERM_OPTS.map(p => <option key={p.value} value={p.value}>{p.label.split('+')[0].trim()}</option>)}
+                      </select>
+                      <button onClick={() => revokeAccess(m.id)}
+                        style={{padding:'6px 8px',borderRadius:9,border:'1px solid #E0DDD3',background:'transparent',color:'#9A968B',cursor:'pointer',display:'flex',alignItems:'center',flexShrink:0,fontFamily:'inherit',fontSize:13}}
+                        onMouseOver={e=>{e.currentTarget.style.background='#FBEAE7';e.currentTarget.style.color='#B3402C'}}
+                        onMouseOut={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color='#9A968B'}}>
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </Card>
+              )}
+
+              <Card>
+                <SectionLabel>Nur-Scan-Modus</SectionLabel>
+                <div style={{fontSize:13,color:'#7C786E',marginBottom:14,lineHeight:1.6}}>
+                  Für Personen die nur Briefe fotografieren sollen — ohne App-Zugang, ohne Anmeldung.
+                </div>
+                {scanTokenUrl ? (
+                  <div>
+                    <div style={{background:'#EAF0F4',border:'1px solid #BBD0DE',borderRadius:10,padding:'10px 12px',marginBottom:12,textAlign:'center'}}>
+                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&color=1F3A52&data=${encodeURIComponent(scanTokenUrl)}`}
+                        alt="Scan QR" style={{width:160,height:160,borderRadius:8}}/>
+                      <div style={{marginTop:8,fontSize:11,color:'#9A968B',wordBreak:'break-all'}}>{scanTokenUrl}</div>
+                    </div>
+                    <div style={{display:'flex',gap:8}}>
+                      <button onClick={() => navigator.share?.({url:scanTokenUrl}) || window.open(scanTokenUrl,'_blank')}
+                        style={{flex:1,padding:'11px 18px',borderRadius:14,border:'1.5px solid #E0DDD3',background:'#fff',color:'#1A1712',fontSize:14,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>
+                        Link teilen
+                      </button>
+                      <button onClick={deactivateScanToken}
+                        style={{padding:'11px 14px',borderRadius:14,border:'1px solid #F1CFC7',background:'#FBEFEC',color:'#B3402C',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>
+                        Deaktivieren
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <PrimaryBtn onClick={generateScanToken} loading={scanTokenLoading}>
+                    Scan-Link erstellen
+                  </PrimaryBtn>
+                )}
               </Card>
             </div>
           )}

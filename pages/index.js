@@ -115,6 +115,9 @@ export default function Home() {
   const [duplikatWarnung, setDuplikatWarnung] = useState(null)
   const [menuOpen, setMenuOpen]               = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState({ ueberfaellig:false, hoch:false, mittel:true, niedrig:true })
+  const [profVorname, setProfVorname]         = useState('')
+  const [profNachname, setProfNachname]       = useState('')
+  const [profAnrede, setProfAnrede]           = useState('du')
   const [selectedDoc, setSelectedDoc]   = useState(null)
   const [neueNotiz, setNeueNotiz]       = useState('')
   const [notizSaving, setNotizSaving]   = useState(false)
@@ -135,6 +138,7 @@ export default function Home() {
   }, [])
 
   async function init(session) {
+    loadMyProfile(session.user.id)
     const { data: zugaenge } = await supabase.from('familien_zugang')
       .select('inhaber_id,berechtigung').eq('mitglied_id', session.user.id).eq('aktiv', true).limit(1)
     if (zugaenge?.length > 0) {
@@ -147,6 +151,15 @@ export default function Home() {
       loadReminderSettings(session.user.id)
       loadKontakte(session.user.id)
       loadScanToken(session.user.id)
+    }
+  }
+
+  async function loadMyProfile(uid) {
+    const { data } = await supabase.from('profiles').select('vorname,nachname,anrede').eq('id', uid).single()
+    if (data) {
+      setProfVorname(data.vorname || '')
+      setProfNachname(data.nachname || '')
+      setProfAnrede(data.anrede || 'du')
     }
   }
 
@@ -459,7 +472,11 @@ export default function Home() {
   const urgentTodos=allTodos.filter(t=>!t.erledigt&&(t.dringlichkeit==='ueberfaellig'||t.dringlichkeit==='hoch')).length
   const isOwner=!ownerView
   const canEdit=!ownerView||myPermission==='abhaken'||myPermission==='notizen'
-  const userName=session?.user?.email?.split('@')[0]||''
+  const emailPrefix=session?.user?.email?.split('@')[0]||''
+  const fullName=profVorname?[profVorname,profNachname].filter(Boolean).join(' '):emailPrefix
+  const greeting=(profAnrede==='Herr'||profAnrede==='Frau')
+    ?(profNachname?`${profAnrede} ${profNachname}`:profVorname||emailPrefix)
+    :(profVorname||emailPrefix)
 
   function toggleGroup(key) { setCollapsedGroups(prev => ({ ...prev, [key]: !prev[key] })) }
 
@@ -505,7 +522,7 @@ export default function Home() {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
                 </svg>
-                <span>{userName}</span>
+                <span>{fullName}</span>
               </button>
             </div>
           ) : <span style={{width:34}} />}
@@ -558,7 +575,7 @@ export default function Home() {
             <div>
               {/* Hero */}
               <div className="dash-hero">
-                <div className="dash-hero-label">Guten Tag, {userName}.</div>
+                <div className="dash-hero-label">Guten Tag, {greeting}.</div>
                 <div style={{display:'flex',alignItems:'flex-end',gap:12,marginTop:0}}>
                   <span className="dash-hero-num">{urgentTodos > 0 ? urgentTodos : openTodos}</span>
                   <span className="dash-hero-sub">{urgentTodos > 0 ? 'dringende Aufgaben' : `offene ${openTodos === 1 ? 'Aufgabe' : 'Aufgaben'}`}</span>
@@ -876,96 +893,36 @@ export default function Home() {
               {/* FAMILIE */}
               {view === 'familie' && isOwner && (
                 <div>
-                  <div className="card" style={{padding:16,marginBottom:10}}>
-                    <div className="card-title" style={{marginBottom:14}}>Mitglied einladen</div>
-                    <div className="field-wrap">
-                      <label className="field-label">E-Mail-Adresse</label>
-                      <input className="field-input" type="email" value={inviteEmail}
-                        onChange={e => setInviteEmail(e.target.value)} placeholder="familie@beispiel.de" />
+                  {familyMembers.length === 0 ? (
+                    <div className="empty-state">
+                      {Icons.users}
+                      <p>Keine Familienmitglieder</p>
+                      <p className="caption" style={{maxWidth:220,textAlign:'center',lineHeight:1.5}}>Füge Familienmitglieder unter Menü → Familienfreigabe hinzu.</p>
+                      <button className="btn-ghost" onClick={() => setMenuOpen(true)}>Familienfreigabe einrichten</button>
                     </div>
-                    <div className="field-wrap">
-                      <label className="field-label">Berechtigung</label>
-                      {PERM_OPTS.map(p => (
-                        <label key={p.value} className={`perm-opt${invitePerm === p.value ? ' perm-opt-active' : ''}`}
-                          onClick={() => setInvitePerm(p.value)}>
-                          <div className={`perm-radio${invitePerm === p.value ? ' perm-radio-on' : ''}`} />
-                          <div>
-                            <div className="perm-label">{p.label}</div>
-                            <div className="caption">{p.desc}</div>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                    {inviteMsg && <div className={`msg ${inviteMsg.err ? 'msg-err' : 'msg-ok'}`}>{inviteMsg.text}</div>}
-                    <div style={{display:'flex',gap:8}}>
-                      <button className="btn-primary" style={{flex:1,gap:7,display:'flex',alignItems:'center',justifyContent:'center'}}
-                        onClick={sendInvite} disabled={!inviteEmail || inviteLoading}>
-                        {Icons.mail}
-                        {inviteLoading ? 'Wird gesendet…' : 'Einladen'}
-                      </button>
-                      <button className="btn-secondary" style={{width:52,padding:0,display:'flex',alignItems:'center',justifyContent:'center'}}
-                        onClick={generateQR}>{Icons.qr}</button>
-                    </div>
-                  </div>
-
-                  {showQr && qrToken && (
-                    <div className="card" style={{padding:16,textAlign:'center',marginBottom:10}}>
-                      <div className="card-title" style={{marginBottom:12}}>QR-Code</div>
-                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&color=1F3A52&data=${encodeURIComponent(qrToken)}`}
-                        alt="QR" style={{borderRadius:8,border:'1px solid #EFEDE6',width:180,height:180}} />
-                      <div className="caption" style={{marginTop:8,wordBreak:'break-all'}}>{qrToken}</div>
-                      <button className="btn-ghost btn-sm" onClick={() => setShowQr(false)} style={{marginTop:10}}>Schließen</button>
-                    </div>
-                  )}
-
-                  {familyMembers.length > 0 && (
-                    <div className="card" style={{padding:16,marginBottom:10}}>
-                      <div className="card-title" style={{marginBottom:12}}>Aktueller Zugang</div>
-                      {familyMembers.map(m => (
-                        <div key={m.id} className="member-row">
-                          <div style={{width:36,height:36,borderRadius:'50%',background:m.aktiv?'#1F3A52':'#EAF0F4',display:'flex',alignItems:'center',justifyContent:'center',color:m.aktiv?'#fff':'#1F3A52',fontSize:13,fontWeight:700,flexShrink:0}}>
-                            {(m.mitglied_email||'?')[0].toUpperCase()}
-                          </div>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:14,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.mitglied_email||'QR-Code-Einladung'}</div>
-                            <span className={`pill-status ${m.aktiv?'pill-done':'pill-medium'}`}>{m.aktiv?'✓ Aktiv':'⏳ Ausstehend'} · {PERM_OPTS.find(p=>p.value===m.berechtigung)?.label||m.berechtigung}</span>
-                          </div>
-                          <select className="select-sm" value={m.berechtigung} onChange={e => updatePermission(m.id, e.target.value)}>
-                            {PERM_OPTS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                          </select>
-                          <button className="btn-ghost btn-sm btn-danger" onClick={() => revokeAccess(m.id)}>✕</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Scan-Only */}
-                  <div className="card" style={{padding:16}}>
-                    <div className="card-title" style={{marginBottom:4}}>Nur-Scan-Modus</div>
-                    <div className="caption" style={{marginBottom:14,lineHeight:1.6}}>
-                      Für Personen die nur Briefe fotografieren sollen — ohne App-Zugang, ohne Anmeldung.
-                    </div>
-                    {scanTokenUrl ? (
-                      <div>
-                        <div style={{background:'#EAF0F4',border:'1px solid #BBD0DE',borderRadius:10,padding:'10px 12px',marginBottom:12,textAlign:'center'}}>
-                          <img src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&color=1F3A52&data=${encodeURIComponent(scanTokenUrl)}`}
-                            alt="Scan QR" style={{width:160,height:160,borderRadius:8}} />
-                          <div className="caption" style={{marginTop:8,wordBreak:'break-all',fontSize:11}}>{scanTokenUrl}</div>
-                        </div>
-                        <div style={{display:'flex',gap:8}}>
-                          <button className="btn-secondary" style={{flex:1,fontSize:13}}
-                            onClick={() => navigator.share?.({url:scanTokenUrl}) || window.open(scanTokenUrl,'_blank')}>
-                            Link teilen
-                          </button>
-                          <button className="btn-ghost btn-sm btn-danger" onClick={deactivateScanToken}>Deaktivieren</button>
-                        </div>
+                  ) : (
+                    <>
+                      <div className="todos-bar" style={{marginBottom:16}}>
+                        <span className="todos-count">{familyMembers.filter(m=>m.aktiv).length} aktive Zugänge</span>
+                        <button className="btn-ghost btn-sm" style={{marginLeft:'auto'}} onClick={() => setMenuOpen(true)}>Verwalten</button>
                       </div>
-                    ) : (
-                      <button className="btn-primary btn-full" onClick={generateScanToken} disabled={scanTokenLoading}>
-                        {scanTokenLoading ? 'Wird erstellt…' : 'Scan-Link erstellen'}
-                      </button>
-                    )}
-                  </div>
+                      {familyMembers.map(m => (
+                        <div key={m.id} className="card" style={{padding:16,marginBottom:10}}>
+                          <div style={{display:'flex',alignItems:'center',gap:10}}>
+                            <div style={{width:42,height:42,borderRadius:'50%',background:m.aktiv?'#1F3A52':'#EAF0F4',display:'flex',alignItems:'center',justifyContent:'center',color:m.aktiv?'#fff':'#1F3A52',fontSize:15,fontWeight:700,flexShrink:0}}>
+                              {(m.mitglied_email||'?')[0].toUpperCase()}
+                            </div>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:15,fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.mitglied_email||'QR-Code-Einladung'}</div>
+                              <span className={`pill-status ${m.aktiv?'pill-done':'pill-medium'}`} style={{marginTop:4,display:'inline-block'}}>
+                                {m.aktiv?'✓ Aktiv':'⏳ Ausstehend'} · {PERM_OPTS.find(p=>p.value===m.berechtigung)?.label||m.berechtigung}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1175,12 +1132,12 @@ export default function Home() {
               </div>
               <div style={{padding:'0 0 max(32px,env(safe-area-inset-bottom))'}}>
                 {[
-                  { id:'archiv',  label:'Archiv',   desc:`${docs.length} Dokumente`,                               icon: Icons.archive, icoBg:'#E6F0E9', icoColor:'#2E5A3C' },
+                  { id:'archiv',       label:'Archiv',           desc:`${docs.length} Dokumente`,                               icon: Icons.archive, icoBg:'#E6F0E9', icoColor:'#2E5A3C' },
                   ...(isOwner ? [
-                    { id:'familie', label:'Familie',  desc:`${familyMembers.filter(m=>m.aktiv).length} aktive Zugänge`, icon: Icons.users,   icoBg:'#FBF0E8', icoColor:'#C2410C' },
-                    { id:'kontakte',label:'Kontakte', desc:'Arzt, Anwalt & Co.',                                    icon: Icons.contact, icoBg:'#EAF0F4', icoColor:'#1F3A52', href:'/profil' },
-                    { id:'export',  label:'Export',   desc:'PDF & CSV',                                             icon: Icons.upload,  icoBg:'#FBF0DC', icoColor:'#8A5A12' },
-                    { id:'profil',  label:'Profil',   desc:'Persönliche Daten',                                     icon: Icons.user,    icoBg:'#F4F2EC', icoColor:'#7C786E', href:'/profil' },
+                    { id:'freigaben',    label:'Familienfreigabe', desc:`${familyMembers.filter(m=>m.aktiv).length} aktive Zugänge`, icon: Icons.users,   icoBg:'#FBF0E8', icoColor:'#C2410C', href:'/profil#freigaben' },
+                    { id:'kontakte',     label:'Kontakte',         desc:'Arzt, Anwalt & Co.',                                    icon: Icons.contact, icoBg:'#EAF0F4', icoColor:'#1F3A52', href:'/profil' },
+                    { id:'export',       label:'Export',           desc:'PDF & CSV',                                             icon: Icons.upload,  icoBg:'#FBF0DC', icoColor:'#8A5A12' },
+                    { id:'profil',       label:'Profil',           desc:'Persönliche Daten',                                     icon: Icons.user,    icoBg:'#F4F2EC', icoColor:'#7C786E', href:'/profil' },
                   ] : [])
                 ].map(item => (
                   <button key={item.id} className="menu-item"
