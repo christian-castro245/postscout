@@ -111,83 +111,80 @@ export default async function handler(req, res) {
   const fileParts = parts.filter(p => p.filename);
   if (!fileParts.length) return res.status(400).json({ error: 'Keine Dateien erhalten' });
 
-  // ── Upload zu Supabase Storage (server-seitig, kein Browser-XHR) ────────
-  const uploadedUrls = [];
-  for (let i = 0; i < fileParts.length; i++) {
-    const part = fileParts[i];
+  // ── Claude-Blöcke direkt aus Multipart-Buffer bauen (kein Re-Download) ──
+  const fileBlocks = [];
+  const ts = Date.now();
+  const storageMeta = fileParts.slice(0, 5).map((part, i) => {
     const ext = part.filename.split('.').pop() || 'jpg';
-    const path = `${user.id}/${Date.now()}_${i}.${ext}`;
     const mimeType = part.contentType || 'image/jpeg';
+    const ct = mimeType.split(';')[0].trim();
+    const path = `${user.id}/${ts}_${i}.${ext}`;
 
-    const { error: upErr } = await supabase.storage
-      .from('dokumente')
-      .upload(path, part.data, { upsert: true, contentType: mimeType });
+    const b64 = part.data.toString('base64');
+    if (ct === 'application/pdf') {
+      fileBlocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } });
+    } else if (SUPPORTED_IMAGE_TYPES.includes(ct)) {
+      fileBlocks.push({ type: 'image', source: { type: 'base64', media_type: ct, data: b64 } });
+    } else {
+      fileBlocks.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } });
+    }
+    return { path, data: part.data, mimeType: ct };
+  });
 
-    if (upErr) return res.status(500).json({ error: `Storage-Upload fehlgeschlagen: ${upErr.message}` });
+  if (!fileBlocks.length) return res.status(422).json({ error: 'Keine lesbaren Dateien' });
 
-    const { data: urlData } = supabase.storage.from('dokumente').getPublicUrl(path);
-    if (!urlData?.publicUrl) return res.status(500).json({ error: 'Kein publicUrl nach Upload' });
-    uploadedUrls.push({ url: urlData.publicUrl, mimeType });
-  }
+  // ── Storage-Upload + DB-Insert parallel zu Claude starten ─────────────
+  const uploadPromise = (async () => {
+    const urls = [];
+    for (const { path, data, mimeType } of storageMeta) {
+      const { error: upErr } = await supabase.storage
+        .from('dokumente').upload(path, data, { upsert: true, contentType: mimeType });
+      if (upErr) throw new Error(`Storage-Upload fehlgeschlagen: ${upErr.message}`);
+      const { data: urlData } = supabase.storage.from('dokumente').getPublicUrl(path);
+      urls.push(urlData?.publicUrl || '');
+    }
+    return urls;
+  })();
 
-  // ── DB Insert (service role, umgeht RLS zuverlässig) ───────────────────
-  const { data: dok, error: insertErr } = await supabase
+  const insertPromise = supabase
     .from('dokumente')
     .insert({
       user_id:       user.id,
       dateiname:     fileParts[0].filename,
-      bild_url:      uploadedUrls[0].url,
-      bild_urls:     uploadedUrls.map(u => u.url),
       analysiert:    false,
-      dringlichkeit: 'Zur Kenntnis',
+      dringlichkeit: 'niedrig',
     })
     .select('id')
     .single();
 
-  if (insertErr) return res.status(500).json({ error: `DB-Insert fehlgeschlagen: ${insertErr.message}` });
-  if (!dok?.id)  return res.status(500).json({ error: 'Kein ID nach Insert' });
+  // ── Claude + Upload/Insert parallel ────────────────────────────────────
+  let analysisText = '';
+  let uploadedUrls, dok, insertErr;
 
+  try {
+    [analysisText, uploadedUrls, { data: dok, error: insertErr }] = await Promise.all([
+      anthropic.messages.create({
+        model:      'claude-sonnet-4-6',
+        max_tokens: 2048,
+        system:     SYSTEM_PROMPT,
+        messages:   [{ role: 'user', content: [...fileBlocks, { type: 'text', text: 'Analysiere dieses Dokument vollständig und gib das JSON zurück.' }] }],
+      }).then(msg => msg.content[0]?.text || '{}'),
+      uploadPromise,
+      insertPromise,
+    ]);
+  } catch (err) {
+    console.error('Parallel error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+
+  if (insertErr || !dok?.id) return res.status(500).json({ error: `DB-Insert fehlgeschlagen: ${insertErr?.message}` });
   const dokumentId = dok.id;
 
-  // ── Claude Vision: Bild-Blöcke aus Storage-Daten aufbauen ──────────────
-  const fileBlocks = [];
-  for (const { url, mimeType } of uploadedUrls.slice(0, 5)) {
-    try {
-      const r = await fetch(url);
-      if (!r.ok) continue;
-      const buf = await r.arrayBuffer();
-      const b64 = Buffer.from(buf).toString('base64');
-      const ct = mimeType.split(';')[0].trim();
-
-      if (ct === 'application/pdf') {
-        fileBlocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } });
-      } else if (SUPPORTED_IMAGE_TYPES.includes(ct)) {
-        fileBlocks.push({ type: 'image', source: { type: 'base64', media_type: ct, data: b64 } });
-      } else {
-        fileBlocks.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } });
-      }
-    } catch {}
-  }
-
-  if (!fileBlocks.length) {
-    await supabase.from('dokumente').delete().eq('id', dokumentId);
-    return res.status(422).json({ error: 'Keine lesbaren Dateien' });
-  }
-
-  // ── Claude API ──────────────────────────────────────────────────────────
-  let analysisText = '';
-  try {
-    const msg = await anthropic.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 2048,
-      system:     SYSTEM_PROMPT,
-      messages:   [{ role: 'user', content: [...fileBlocks, { type: 'text', text: 'Analysiere dieses Dokument vollständig und gib das JSON zurück.' }] }],
-    });
-    analysisText = msg.content[0]?.text || '{}';
-  } catch (err) {
-    console.error('Claude API error:', err);
-    return res.status(500).json({ error: `Claude-Fehler: ${err.message}` });
-  }
+  // bild_url nachträglich eintragen (Upload war parallel)
+  await supabase.from('dokumente').update({
+    bild_url:  uploadedUrls[0] || null,
+    bild_urls: uploadedUrls,
+  }).eq('id', dokumentId);
 
   // ── JSON parsen ─────────────────────────────────────────────────────────
   let parsed = {};
