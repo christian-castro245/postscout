@@ -276,91 +276,126 @@ export default function Scannen() {
 
   // ── Kompletter Flow in einer Funktion — kein State-Timing-Problem ────────
   async function handleAnalyze() {
-    if (!pages.length) { setError('Bitte zuerst ein Foto hinzufügen.'); return; }
-    setError(null);
-
-    // 1. Auth
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push('/login'); return; }
-
-    // 2. Upload
-    setPhase('uploading');
-    const uploadedUrls = [];
-    for (let i = 0; i < pages.length; i++) {
-      const { file } = pages[i];
-      const ext  = file.name.split('.').pop() || 'jpg';
-      const path = `${user.id}/${Date.now()}_${i}.${ext}`;
-      addLog(`Upload ${i+1}/${pages.length}: ${file.name}`);
-      const { error: upErr } = await supabase.storage
-        .from('dokumente').upload(path, file, { upsert: false });
-      if (upErr) {
-        addLog(`Upload-Fehler: ${upErr.message}`);
-        setError(`Upload fehlgeschlagen: ${upErr.message}`);
-        setPhase('idle'); return;
-      }
-      const { data: urlData } = supabase.storage.from('dokumente').getPublicUrl(path);
-      if (!urlData?.publicUrl) {
-        setError('Kein URL nach Upload.');
-        setPhase('idle'); return;
-      }
-      uploadedUrls.push(urlData.publicUrl);
-      addLog(`Upload OK`);
-    }
-
-    // 3. DB Insert
-    addLog('Dokument anlegen…');
-    const { data: dok, error: insertErr } = await supabase
-      .from('dokumente')
-      .insert({
-        user_id:       user.id,
-        dateiname:     pages[0].file.name,
-        bild_url:      uploadedUrls[0],
-        bild_urls:     uploadedUrls,
-        analysiert:    false,
-        dringlichkeit: 'Zur Kenntnis',
-      })
-      .select('id')
-      .single();
-
-    if (insertErr || !dok?.id) {
-      const msg = insertErr?.message || 'Keine ID zurück';
-      addLog(`DB-Fehler: ${msg}`);
-      setError(`Datenbank-Fehler: ${msg}`);
-      setPhase('idle'); return;
-    }
-
-    // dokumentId ist eine lokale const — KEIN React State
-    const dokumentId = dok.id;
-    addLog(`ID: ${dokumentId}`);
-
-    // 4. Analyse
-    setPhase('analyzing');
-    addLog(`POST /api/analyze { dokumentId: "${dokumentId}" }`);
-
-    let res;
+    addLog('--- Start handleAnalyze ---');
     try {
-      res = await fetch('/api/analyze', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ dokumentId }),
+      if (!pages.length) { setError('Bitte zuerst ein Foto hinzufügen.'); addLog('Abbruch: keine Seiten'); return; }
+      setError(null);
+
+      // 1. Auth
+      addLog('Prüfe Login-Status…');
+      const { data: authData, error: authErr } = await supabase.auth.getUser();
+      if (authErr) {
+        addLog(`Auth-Fehler: ${authErr.message}`);
+        setError(`Anmeldefehler: ${authErr.message}. Bitte neu einloggen.`);
+        setPhase('idle'); return;
+      }
+      const user = authData?.user;
+      if (!user) {
+        addLog('Kein User — Session abgelaufen. Redirect zu /login.');
+        setError('Sitzung abgelaufen. Du wirst zum Login weitergeleitet…');
+        setTimeout(() => router.push('/login'), 1500);
+        return;
+      }
+      addLog(`Eingeloggt als: ${user.id.slice(0,8)}…`);
+
+      // 2. Upload
+      setPhase('uploading');
+      const uploadedUrls = [];
+      for (let i = 0; i < pages.length; i++) {
+        const { file } = pages[i];
+        const ext  = file.name.split('.').pop() || 'jpg';
+        const path = `${user.id}/${Date.now()}_${i}.${ext}`;
+        addLog(`Upload ${i+1}/${pages.length}: ${file.name} (${(file.size/1024).toFixed(0)}KB)`);
+        const { error: upErr } = await supabase.storage
+          .from('dokumente').upload(path, file, { upsert: false });
+        if (upErr) {
+          addLog(`Upload-Fehler: ${upErr.message}`);
+          setError(`Upload fehlgeschlagen: ${upErr.message}`);
+          setPhase('idle'); return;
+        }
+        const { data: urlData } = supabase.storage.from('dokumente').getPublicUrl(path);
+        if (!urlData?.publicUrl) {
+          addLog('Kein publicUrl zurückgegeben');
+          setError('Kein URL nach Upload erhalten.');
+          setPhase('idle'); return;
+        }
+        uploadedUrls.push(urlData.publicUrl);
+        addLog(`Upload OK: ${urlData.publicUrl.split('/').pop()}`);
+      }
+
+      // 3. DB Insert
+      addLog('Dokument-Zeile in DB anlegen…');
+      const { data: dok, error: insertErr } = await supabase
+        .from('dokumente')
+        .insert({
+          user_id:       user.id,
+          dateiname:     pages[0].file.name,
+          bild_url:      uploadedUrls[0],
+          bild_urls:     uploadedUrls,
+          analysiert:    false,
+          dringlichkeit: 'Zur Kenntnis',
+        })
+        .select('id')
+        .single();
+
+      if (insertErr) {
+        addLog(`INSERT-FEHLER CODE: ${insertErr.code || '?'}`);
+        addLog(`INSERT-FEHLER MSG: ${insertErr.message || '?'}`);
+        addLog(`INSERT-FEHLER DETAILS: ${insertErr.details || '?'}`);
+        addLog(`INSERT-FEHLER HINT: ${insertErr.hint || '?'}`);
+        setError(`Datenbank-Fehler [${insertErr.code}]: ${insertErr.message}`);
+        setPhase('idle'); return;
+      }
+      if (!dok?.id) {
+        addLog('Insert ohne Fehler, aber KEINE ID im Ergebnis!');
+        addLog(`dok-Objekt war: ${JSON.stringify(dok)}`);
+        setError('Unerwartet: Dokument wurde angelegt, aber ohne ID zurückgegeben.');
+        setPhase('idle'); return;
+      }
+
+      // dokumentId ist eine lokale const — KEIN React State
+      const dokumentId = dok.id;
+      addLog(`✓ Dokument-ID erhalten: ${dokumentId}`);
+
+      // 4. Analyse
+      setPhase('analyzing');
+      addLog(`POST /api/analyze mit dokumentId="${dokumentId}"`);
+
+      let res;
+      try {
+        res = await fetch('/api/analyze', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ dokumentId }),
+        });
+      } catch (fetchErr) {
+        addLog(`Netzwerkfehler beim fetch: ${fetchErr.message}`);
+        setError(`Netzwerkfehler: ${fetchErr.message}`);
+        setPhase('idle'); return;
+      }
+
+      const result = await res.json().catch((e) => {
+        addLog(`Response konnte nicht als JSON gelesen werden: ${e.message}`);
+        return {};
       });
-    } catch (fetchErr) {
-      addLog(`Netzwerkfehler: ${fetchErr.message}`);
-      setError(`Netzwerkfehler: ${fetchErr.message}`);
-      setPhase('idle'); return;
+      addLog(`Antwort: HTTP ${res.status} — ${JSON.stringify(result).slice(0, 150)}`);
+
+      if (!res.ok) {
+        setError(`Analyse fehlgeschlagen (HTTP ${res.status}): ${result.error || 'Unbekannter Fehler'}`);
+        setPhase('idle'); return;
+      }
+
+      addLog('✓ Fertig!');
+      setPhase('done');
+      setTimeout(() => router.push('/aufgaben'), 1200);
+
+    } catch (unexpectedErr) {
+      // Globaler Fallback — JEDER unerwartete Fehler landet garantiert hier
+      addLog(`UNERWARTETER FEHLER: ${unexpectedErr.message}`);
+      addLog(`Stack: ${unexpectedErr.stack?.slice(0, 200) || 'kein stack'}`);
+      setError(`Unerwarteter Fehler: ${unexpectedErr.message}`);
+      setPhase('idle');
     }
-
-    const result = await res.json().catch(() => ({}));
-    addLog(`Response: ${res.status} ${JSON.stringify(result).slice(0, 100)}`);
-
-    if (!res.ok) {
-      setError(`Analyse fehlgeschlagen (${res.status}): ${result.error || 'Unbekannt'}`);
-      setPhase('idle'); return;
-    }
-
-    addLog('Fertig!');
-    setPhase('done');
-    setTimeout(() => router.push('/aufgaben'), 1200);
   }
 
   const busy = phase === 'uploading' || phase === 'analyzing';
