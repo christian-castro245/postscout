@@ -174,6 +174,7 @@ export default function Home() {
     await supabase.auth.signOut()
     setDocs([]); setAllTodos([]); setPhotos([]); setFamilyMembers([])
     setOwnerView(null); setView('home')
+    setProfVorname(''); setProfNachname(''); setProfAnrede('du')
   }
 
   async function handleAuth() {

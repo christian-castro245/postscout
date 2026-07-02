@@ -246,23 +246,33 @@ export default function Profil() {
 
   async function saveProfil() {
     setSaving(true)
-    const { error } = await supabase.from('profiles').update({
+    const { error } = await supabase.from('profiles').upsert({
+      id: session.user.id,
       anrede, vorname, nachname, strasse, hausnummer, plz, ort,
       geburtsdatum: geburtsdatum||null, telefon,
       steuer_id: steuerId, bank_name: bankName, iban, bic,
-    }).eq('id', session.user.id)
+    }, { onConflict: 'id' })
     showMsg(error ? error.message : 'Gespeichert', !!error)
     setSaving(false)
   }
 
   async function sendInvite() {
     setInviteLoading(true); setInviteMsg(null)
+    const token = randomToken() + randomToken()
     const { error } = await supabase.from('familien_zugang').insert({
       inhaber_id: session.user.id, mitglied_email: inviteEmail,
-      berechtigung: invitePerm, aktiv: false,
+      berechtigung: invitePerm, aktiv: false, einladungs_token: token,
     })
-    if (error) setInviteMsg({ text: error.message, err: true })
-    else { setInviteMsg({ text: 'Einladung gesendet!', err: false }); setInviteEmail(''); loadFamilyMembers(session.user.id) }
+    if (error) { setInviteMsg({ text: error.message, err: true }); setInviteLoading(false); return }
+    const ownerName = [vorname, nachname].filter(Boolean).join(' ') || session.user.email
+    await fetch('/api/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inviteeEmail: inviteEmail, ownerName, permission: invitePerm, inviteToken: token }),
+    })
+    setInviteMsg({ text: 'Einladungs-E-Mail gesendet!', err: false })
+    setInviteEmail('')
+    loadFamilyMembers(session.user.id)
     setInviteLoading(false)
   }
 
