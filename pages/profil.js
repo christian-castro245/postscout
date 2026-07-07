@@ -13,12 +13,19 @@ const IMAP_PROVIDERS = [
 const KONTAKT_KATEGORIEN = ['Arzt', 'Anwalt', 'Steuerberater', 'Hausmeister', 'Nachbar', 'Behörde', 'Handwerker', 'Sonstiges']
 
 const TABS = [
-  { id: 'person',    label: 'Person' },
-  { id: 'bank',      label: 'Bank' },
-  { id: 'mieter',    label: 'Mieter' },
-  { id: 'kontakte',  label: 'Kontakte' },
-  { id: 'imap',      label: 'E-Mail' },
-  { id: 'freigaben', label: 'Freigaben' },
+  { id: 'person',             label: 'Person' },
+  { id: 'bank',               label: 'Bank' },
+  { id: 'mieter',             label: 'Mieter' },
+  { id: 'kontakte',           label: 'Kontakte' },
+  { id: 'imap',               label: 'E-Mail' },
+  { id: 'freigaben',          label: 'Freigaben' },
+  { id: 'benachrichtigungen', label: 'Reminder' },
+]
+
+const FREQ_OPTS = [
+  { value: 'taeglich',     label: 'Täglich' },
+  { value: '2x_woche',     label: '2× pro Woche' },
+  { value: 'woechentlich', label: 'Wöchentlich' },
 ]
 
 const PERM_OPTS = [
@@ -176,6 +183,10 @@ export default function Profil() {
   const [scanTokenLoading, setScanTokenLoading] = useState(false)
   const appUrl = typeof window !== 'undefined' ? window.location.origin : ''
 
+  // Reminder
+  const [reminderSettings, setReminderSettings] = useState(null)
+  const [reminderMsg, setReminderMsg]           = useState(null)
+
   // Kontakte
   const [kontakte, setKontakte] = useState([])
   const [kKat, setKKat]         = useState('Arzt')
@@ -198,6 +209,7 @@ export default function Profil() {
         loadKontakte(session.user.id)
         loadFamilyMembers(session.user.id)
         loadScanToken(session.user.id)
+        loadReminderSettings(session.user.id)
       }
     })
   }, [])
@@ -238,6 +250,19 @@ export default function Profil() {
   async function loadKontakte(uid) {
     const { data } = await supabase.from('kontakte').select('*').eq('user_id', uid).order('name')
     setKontakte(data||[])
+  }
+
+  async function loadReminderSettings(uid) {
+    const { data } = await supabase.from('reminder_settings').select('*').eq('user_id', uid).single()
+    setReminderSettings(data || { frequenz: 'taeglich', uhrzeit_utc: 7, nur_dringende: false, aktiv: false })
+  }
+
+  async function saveReminder(updates) {
+    const newSettings = { ...reminderSettings, ...updates, user_id: session.user.id }
+    setReminderSettings(newSettings)
+    await supabase.from('reminder_settings').upsert(newSettings, { onConflict: 'user_id' })
+    setReminderMsg({ text: 'Gespeichert', err: false })
+    setTimeout(() => setReminderMsg(null), 2500)
   }
 
   function showMsg(text, err=false) {
@@ -670,6 +695,69 @@ export default function Profil() {
                   <PrimaryBtn onClick={generateScanToken} loading={scanTokenLoading}>
                     Scan-Link erstellen
                   </PrimaryBtn>
+                )}
+              </Card>
+            </div>
+          )}
+
+          {/* ── BENACHRICHTIGUNGEN ── */}
+          {activeTab === 'benachrichtigungen' && (
+            <div>
+              <Card>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
+                  <div style={{width:40,height:40,borderRadius:11,background:'#FBF0E8',display:'flex',alignItems:'center',justifyContent:'center',color:'#C2410C',flexShrink:0,fontSize:20}}>🔔</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:15,fontWeight:700}}>E-Mail-Reminder</div>
+                    <div style={{fontSize:12,color:'#9A968B',marginTop:1}}>Erinnerungen per E-Mail</div>
+                  </div>
+                  <button
+                    style={{width:44,height:26,borderRadius:13,border:'none',background:reminderSettings?.aktiv?'#1F3A52':'#D1CEC6',cursor:'pointer',position:'relative',transition:'background 200ms',flexShrink:0}}
+                    onClick={() => saveReminder({ aktiv: !reminderSettings?.aktiv })}>
+                    <div style={{position:'absolute',top:3,left:reminderSettings?.aktiv?20:3,width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left 200ms',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
+                  </button>
+                </div>
+                {reminderSettings?.aktiv && (
+                  <>
+                    <div style={{marginTop:14,marginBottom:8}}>
+                      <label style={{fontSize:11,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',color:'#B6B2A6',display:'block',marginBottom:8}}>Häufigkeit</label>
+                      {FREQ_OPTS.map(f => (
+                        <div key={f.value}
+                          onClick={() => saveReminder({ frequenz: f.value })}
+                          style={{display:'flex',alignItems:'center',gap:10,padding:'10px 0',borderBottom:'1px solid #EFEDE6',cursor:'pointer'}}>
+                          <div style={{width:20,height:20,borderRadius:'50%',border:`2px solid ${reminderSettings?.frequenz===f.value?'#1F3A52':'#D1CEC6'}`,background:reminderSettings?.frequenz===f.value?'#1F3A52':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                            {reminderSettings?.frequenz===f.value && <div style={{width:8,height:8,borderRadius:'50%',background:'#fff'}}/>}
+                          </div>
+                          <span style={{fontSize:15,fontWeight:500}}>{f.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{marginTop:14,marginBottom:14}}>
+                      <label style={{fontSize:11,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',color:'#B6B2A6',display:'block',marginBottom:6}}>Uhrzeit</label>
+                      <select value={reminderSettings?.uhrzeit_utc ?? 7}
+                        onChange={e => saveReminder({ uhrzeit_utc: parseInt(e.target.value) })}
+                        style={{width:'100%',padding:'11px 13px',borderRadius:11,border:'1.5px solid #E0DDD3',background:'#F4F2EC',color:'#1A1712',fontSize:15,fontWeight:500,fontFamily:'inherit',outline:'none'}}>
+                        {[6,7,8,9,10,12,18,20].map(h => (
+                          <option key={h} value={h}>{String(h).padStart(2,'0')}:00 Uhr</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:12,paddingTop:4}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:15,fontWeight:600}}>Nur zeitkritische Aufgaben</div>
+                        <div style={{fontSize:12,color:'#9A968B',marginTop:2}}>Dringendes + Frist ≤ 7 Tage</div>
+                      </div>
+                      <button
+                        style={{width:44,height:26,borderRadius:13,border:'none',background:reminderSettings?.nur_dringende?'#1F3A52':'#D1CEC6',cursor:'pointer',position:'relative',transition:'background 200ms',flexShrink:0}}
+                        onClick={() => saveReminder({ nur_dringende: !reminderSettings?.nur_dringende })}>
+                        <div style={{position:'absolute',top:3,left:reminderSettings?.nur_dringende?20:3,width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left 200ms',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
+                      </button>
+                    </div>
+                  </>
+                )}
+                {reminderMsg && (
+                  <div style={{marginTop:12,borderRadius:11,padding:'10px 13px',fontSize:13,fontWeight:500,background:reminderMsg.err?'#FBEAE7':'#E9F0E9',color:reminderMsg.err?'#B3402C':'#2E7D46'}}>
+                    {reminderMsg.text}
+                  </div>
                 )}
               </Card>
             </div>

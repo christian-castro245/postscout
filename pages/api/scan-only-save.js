@@ -1,18 +1,57 @@
-// POST /api/scan-only-save
-// Speichert ein Dokument das über den Scan-Only-Modus aufgenommen wurde
-// Validiert den scan_token und speichert im Account des Inhabers
-
+import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
+import { parseGermanDate } from '../../lib/dateUtils'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+const SYSTEM_PROMPT = `Du analysierst Dokumente (Briefe, Bescheide, Rechnungen) für ältere Menschen in Deutschland.
+Antworte AUSSCHLIESSLICH mit einem JSON-Objekt. Kein Text davor oder danach.
+
+JSON-Schema:
+{
+  "titel": "Kurztitel des Dokuments (max 60 Zeichen)",
+  "absender": "Name der sendenden Organisation/Person",
+  "absender_email": "E-Mail-Adresse falls erkennbar, sonst null",
+  "dringlichkeit": "Überfällig" | "Dringend" | "Mittelfristig" | "Zur Kenntnis" | "Werbung/Ignorieren",
+  "zusammenfassung": "2-3 Sätze in einfachem Deutsch was in dem Dokument steht",
+  "faelligkeitsdatum": "YYYY-MM-DD oder null wenn kein konkretes Datum erkennbar",
+  "antwort_erforderlich": true | false,
+  "aufgaben": [
+    {
+      "beschreibung": "Konkrete Aufgabe in einfacher Sprache",
+      "faelligkeitsdatum": "YYYY-MM-DD oder null",
+      "empfehlung": "Was die Person konkret tun soll (optional)",
+      "antwort_erforderlich": true | false
+    }
+  ]
+}
+
+DATUM-REGEL: Erkannte Daten IMMER als YYYY-MM-DD formatieren. Heute ist ${new Date().toISOString().slice(0, 10)}.
+Falls ein Datum im Text steht (z.B. "02. Juli 2026") → "2026-07-02".
+Falls kein Datum erkennbar → null. NIEMALS leere Strings oder unformatierte Daten.`
+
+const DRING_MAP = {
+  'Überfällig':         'ueberfaellig',
+  'Dringend':           'hoch',
+  'Mittelfristig':      'mittel',
+  'Zur Kenntnis':       'niedrig',
+  'Werbung/Ignorieren': 'ignorieren',
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Nur POST' })
 
-  const { scanToken, ownerId, storagePath, analysisResult: r, pageCount } = req.body
+  const { scanToken, ownerId, images, pageCount } = req.body
+  // images: [{ base64: string }]
+
+  if (!scanToken || !ownerId || !Array.isArray(images) || !images.length) {
+    return res.status(400).json({ error: 'scanToken, ownerId und images erforderlich' })
+  }
 
   // Validate token
   const { data: token, error: tokenErr } = await supabaseAdmin
@@ -26,32 +65,94 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Ungültiger Scan-Token' })
   }
 
-  function parseFrist(frist) {
-    if (!frist) return null
-    const p = frist.split('.')
-    if (p.length === 3) return `${p[2]}-${p[1]}-${p[0]}`
-    return null
+  // Build Claude image blocks
+  const fileBlocks = images.map(img => ({
+    type: 'image',
+    source: { type: 'base64', media_type: 'image/jpeg', data: img.base64 },
+  }))
+  fileBlocks.push({
+    type: 'text',
+    text: images.length > 1
+      ? `Analysiere diese ${images.length} Seiten als ein Dokument.`
+      : 'Analysiere diesen Brief.',
+  })
+
+  const ts = Date.now()
+
+  // Upload to storage server-side (service role — no iOS Safari risk)
+  const uploadPromise = (async () => {
+    const urls = []
+    for (let i = 0; i < images.length; i++) {
+      const path = `${ownerId}/scan-only/${ts}_${i}.jpg`
+      const buf = Buffer.from(images[i].base64, 'base64')
+      const { error: upErr } = await supabaseAdmin.storage
+        .from('dokumente')
+        .upload(path, buf, { upsert: true, contentType: 'image/jpeg' })
+      if (upErr) throw new Error(`Storage: ${upErr.message}`)
+      const { data: urlData } = supabaseAdmin.storage.from('dokumente').getPublicUrl(path)
+      urls.push(urlData?.publicUrl || '')
+    }
+    return urls
+  })()
+
+  const analyzePromise = anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 2048,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: fileBlocks }],
+  }).then(msg => msg.content[0]?.text || '{}')
+
+  let analysisText, uploadedUrls
+  try {
+    ;[analysisText, uploadedUrls] = await Promise.all([analyzePromise, uploadPromise])
+  } catch (e) {
+    return res.status(500).json({ error: e.message })
   }
 
+  let parsed = {}
+  try {
+    parsed = JSON.parse(analysisText.replace(/```json\n?|```/g, '').trim())
+  } catch {
+    return res.status(500).json({ error: 'Analyse-JSON fehlerhaft' })
+  }
+
+  const safeDate = v => parseGermanDate(v)
+  const dring = DRING_MAP[parsed.dringlichkeit] || 'niedrig'
+
+  const aufgaben = (parsed.aufgaben || []).map(t => ({
+    beschreibung:         t.beschreibung || '',
+    faelligkeitsdatum:    safeDate(t.faelligkeitsdatum),
+    empfehlung:           t.empfehlung || null,
+    antwort_erforderlich: Boolean(t.antwort_erforderlich),
+    erledigt:             false,
+  }))
+
   const { error: dbErr } = await supabaseAdmin.from('dokumente').insert({
-    user_id: ownerId,
-    dateiname: `Scan (${pageCount} Seite${pageCount !== 1 ? 'n' : ''})`,
-    storage_path: storagePath,
-    mime_type: 'image/jpeg',
-    quelle: 'scan-only',
-    anhaenge: [],
-    notizen: [],
-    kategorie: r.kategorie,
-    absender: r.absender,
-    zusammenfassung: r.zusammenfassung,
-    dringlichkeit: r.dringlichkeit,
-    frist: parseFrist(r.frist),
-    betrag: r.betrag,
-    steuerrelevant: r.steuerrelevant,
+    user_id:              ownerId,
+    dateiname:            `Scan (${pageCount} Seite${pageCount !== 1 ? 'n' : ''})`,
+    bild_url:             uploadedUrls[0] || null,
+    bild_urls:            uploadedUrls,
+    mime_type:            'image/jpeg',
+    quelle:               'scan-only',
+    anhaenge:             [],
+    notizen:              [],
+    titel:                parsed.titel || 'Scan',
+    absender:             parsed.absender || null,
+    absender_email:       parsed.absender_email || null,
+    zusammenfassung:      parsed.zusammenfassung || '',
+    dringlichkeit:        dring,
+    faelligkeitsdatum:    safeDate(parsed.faelligkeitsdatum),
+    antwort_erforderlich: Boolean(parsed.antwort_erforderlich),
+    analysiert:           true,
+    aufgaben,
+    todos: aufgaben.map(t => ({
+      aufgabe:       t.beschreibung,
+      frist:         t.faelligkeitsdatum,
+      dringlichkeit: dring,
+      status:        'offen',
+      erledigt:      false,
+    })),
     jahr: new Date().getFullYear(),
-    todos: (r.todos || []).map(t => ({ ...t, status: 'offen', dringlichkeit: t.dringlichkeit || r.dringlichkeit })),
-    empfehlungen: r.empfehlungen || [],
-    inhalts_hash: r.inhaltsHash || null,
   })
 
   if (dbErr) return res.status(500).json({ error: dbErr.message })

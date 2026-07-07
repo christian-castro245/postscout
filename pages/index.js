@@ -79,8 +79,6 @@ const NAV_TABS = [
   { id:'home',   label:'Start',    icon: Icons.home   },
   { id:'scan',   label:'Scannen',  icon: Icons.camera },
   { id:'archiv', label:'Archiv',   icon: Icons.archive},
-  { id:'familie',label:'Familie',  icon: Icons.users  },
-  { id:'export', label:'Export',   icon: Icons.upload },
 ]
 
 export default function Home() {
@@ -1050,49 +1048,6 @@ export default function Home() {
                   </div>
 
                   {exportMsg && <div className={`msg ${exportMsg.err ? 'msg-err' : 'msg-ok'}`}>{exportMsg.text}</div>}
-
-                  <div className="card" style={{padding:16}}>
-                    <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
-                      <div style={{width:36,height:36,borderRadius:11,background:'#FBF0E8',display:'flex',alignItems:'center',justifyContent:'center',color:'#C2410C',flexShrink:0}}>{Icons.bell}</div>
-                      <div className="card-title">E-Mail-Reminder</div>
-                      <button className={`toggle-btn${reminderSettings?.aktiv ? ' toggle-on' : ''}`} style={{marginLeft:'auto'}}
-                        onClick={() => saveReminder({aktiv:!reminderSettings?.aktiv})}>
-                        <div className="toggle-knob" />
-                      </button>
-                    </div>
-                    {reminderSettings?.aktiv && (
-                      <>
-                        <div className="field-wrap" style={{marginTop:14}}>
-                          <label className="field-label">Häufigkeit</label>
-                          {FREQ_OPTS.map(f => (
-                            <label key={f.value} className={`perm-opt${reminderSettings?.frequenz === f.value ? ' perm-opt-active' : ''}`}
-                              onClick={() => saveReminder({frequenz:f.value})}>
-                              <div className={`perm-radio${reminderSettings?.frequenz === f.value ? ' perm-radio-on' : ''}`} />
-                              <div className="perm-label">{f.label}</div>
-                            </label>
-                          ))}
-                        </div>
-                        <div className="field-wrap">
-                          <label className="field-label">Uhrzeit</label>
-                          <select className="field-input" value={reminderSettings?.uhrzeit_utc ?? 7}
-                            onChange={e => saveReminder({uhrzeit_utc:parseInt(e.target.value)})}>
-                            {[6,7,8,9,10,12,18,20].map(h => <option key={h} value={h}>{String(h).padStart(2,'0')}:00 Uhr</option>)}
-                          </select>
-                        </div>
-                        <div className="toggle-row">
-                          <div>
-                            <div style={{fontSize:15,fontWeight:600}}>Nur zeitkritische Todos</div>
-                            <div className="caption" style={{marginTop:2}}>Dringendes + Frist ≤ 7 Tage</div>
-                          </div>
-                          <button className={`toggle-btn${reminderSettings?.nur_dringende ? ' toggle-on' : ''}`}
-                            onClick={() => saveReminder({nur_dringende:!reminderSettings?.nur_dringende})}>
-                            <div className="toggle-knob" />
-                          </button>
-                        </div>
-                      </>
-                    )}
-                    {reminderMsg && <div className={`msg ${reminderMsg.err ? 'msg-err' : 'msg-ok'}`} style={{marginTop:10}}>{reminderMsg.text}</div>}
-                  </div>
                 </div>
               )}
             </div>

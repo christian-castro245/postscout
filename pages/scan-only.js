@@ -200,47 +200,20 @@ export default function ScanOnly() {
     stopCamera()
 
     try {
-      const contentParts = pages.map(p => ({
-        type: 'image',
-        source: { type: 'base64', media_type: 'image/jpeg', data: p.base64 }
-      }))
-      contentParts.push({ type: 'text', text: pages.length > 1
-        ? `Analysiere diese ${pages.length} Seiten als ein Dokument.`
-        : 'Analysiere diesen Brief.' })
-
-      // Analyze via dedicated anonymous-scan API (kein dokumentId vorhanden)
-      const res = await fetch('/api/analyze-anon', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contentParts, userId: tokenData.ownerId }),
-      })
-      if (!res.ok) throw new Error('Analyse fehlgeschlagen')
-      const r = await res.json()
-
-      // Upload images to storage
-      const ts = Date.now()
-      const storagePaths = []
-      for (let i = 0; i < pages.length; i++) {
-        const path = `${tokenData.ownerId}/scan-only/${ts}_${i}.jpg`
-        const { error: se } = await supabaseAnon.storage
-          .from('dokumente').upload(path, pages[i].blob, { contentType: 'image/jpeg' })
-        if (se) throw new Error('Upload: ' + se.message)
-        storagePaths.push(path)
-      }
-
-      // Save document using service-role via API route
       const saveRes = await fetch('/api/scan-only-save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scanToken: tokenData.scanToken,
           ownerId: tokenData.ownerId,
-          storagePath: storagePaths[0],
-          analysisResult: r,
+          images: pages.map(p => ({ base64: p.base64 })),
           pageCount: pages.length,
         }),
       })
-      if (!saveRes.ok) throw new Error('Speichern fehlgeschlagen')
+      if (!saveRes.ok) {
+        const e = await saveRes.json().catch(() => ({}))
+        throw new Error(e.error || 'Speichern fehlgeschlagen')
+      }
       setState('done')
     } catch (e) {
       setErrorMsg(e.message)
