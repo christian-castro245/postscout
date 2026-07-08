@@ -117,6 +117,7 @@ export default function Home() {
   const [profNachname, setProfNachname]       = useState('')
   const [profAnrede, setProfAnrede]           = useState('du')
   const [selectedDoc, setSelectedDoc]   = useState(null)
+  const [selectedTodo, setSelectedTodo] = useState(null)
   const [neueNotiz, setNeueNotiz]       = useState('')
   const [notizSaving, setNotizSaving]   = useState(false)
   const [docReminder, setDocReminder]   = useState('')
@@ -205,6 +206,7 @@ export default function Home() {
       ;(doc.todos || []).forEach((t, idx) => {
         flat.push({ ...t, docId: doc.id, docName: doc.absender || doc.dateiname,
           catIco: cat.ico, todoIdx: idx,
+          docBildUrl: doc.bild_url, docBildUrls: doc.bild_urls,
           dringlichkeit: t.dringlichkeit || doc.dringlichkeit || 'niedrig' })
       })
     })
@@ -748,7 +750,7 @@ export default function Home() {
                           const s = TODO_STATUS[status] || TODO_STATUS.offen
                           const isDone = status === 'erledigt'
                           return (
-                            <div key={i} className={`todo-card${isDone ? ' todo-card-done' : ''}`}>
+                            <div key={i} className={`todo-card${isDone ? ' todo-card-done' : ''}${t.typ === 'zahlung' ? ' todo-card-payment' : ''}`}>
                               <button className="todo-check-btn" onClick={() => cycleTodoStatus(t.docId, t.todoIdx)}
                                 disabled={!canEdit} title={s.label}
                                 style={{borderColor:s.color, background:s.bg, opacity:!canEdit?0.4:1}}>
@@ -756,10 +758,11 @@ export default function Home() {
                                 {status === 'in_bearbeitung' && <span style={{fontSize:10,color:'#8A5A12'}}>↻</span>}
                                 {status === 'wartet' && <span style={{fontSize:10,color:'#1F3A52'}}>…</span>}
                               </button>
-                              <div className="todo-body">
+                              <div className="todo-body" onClick={() => setSelectedTodo(t)} style={{cursor:'pointer'}}>
                                 <div className="todo-aufgabe" style={{textDecoration:isDone?'line-through':'none',opacity:isDone?0.45:1}}>{t.aufgabe}</div>
                                 <div className="todo-meta">
                                   <span>{t.catIco} {t.docName}</span>
+                                  {t.betrag != null && <span className="pill-zahlung">€ {t.betrag.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>}
                                   {t.frist && <span style={{color:dring==='ueberfaellig'?'#B3402C':dring==='hoch'?'#C2410C':'#8A5A12',fontWeight:600}}>
                                     {dring==='ueberfaellig'?'⚠ Überfällig · ':''}{new Date(t.frist+'T00:00:00').toLocaleDateString('de-DE')}
                                   </span>}
@@ -831,7 +834,7 @@ export default function Home() {
                               const s = TODO_STATUS[status] || TODO_STATUS.offen
                               const isDone = status === 'erledigt'
                               return (
-                                <div key={i} className={`todo-card${isDone ? ' todo-card-done' : ''}`}>
+                                <div key={i} className={`todo-card${isDone ? ' todo-card-done' : ''}${t.typ === 'zahlung' ? ' todo-card-payment' : ''}`}>
                                   <button className="todo-check-btn" onClick={() => cycleTodoStatus(t.docId, t.todoIdx)}
                                     disabled={!canEdit} title={s.label}
                                     style={{borderColor:s.color, background:s.bg, opacity:!canEdit?0.4:1}}>
@@ -839,10 +842,11 @@ export default function Home() {
                                     {status === 'in_bearbeitung' && <span style={{fontSize:10,color:'#8A5A12'}}>↻</span>}
                                     {status === 'wartet' && <span style={{fontSize:10,color:'#1F3A52'}}>…</span>}
                                   </button>
-                                  <div className="todo-body">
+                                  <div className="todo-body" onClick={() => setSelectedTodo(t)} style={{cursor:'pointer'}}>
                                     <div className="todo-aufgabe" style={{textDecoration:isDone?'line-through':'none',opacity:isDone?0.45:1}}>{t.aufgabe}</div>
                                     <div className="todo-meta">
                                       <span>{t.catIco} {t.docName}</span>
+                                      {t.betrag != null && <span className="pill-zahlung">€ {t.betrag.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>}
                                       {t.frist && <span style={{color:dring==='ueberfaellig'?'#B3402C':dring==='hoch'?'#C2410C':'#8A5A12',fontWeight:600}}>
                                         {dring==='ueberfaellig'?'⚠ Überfällig · ':''}{new Date(t.frist+'T00:00:00').toLocaleDateString('de-DE')}
                                       </span>}
@@ -1205,6 +1209,83 @@ export default function Home() {
           </div>
         )}
 
+        {/* ── TODO DETAIL MODAL ── */}
+        {selectedTodo && (
+          <div className="modal-overlay" onClick={() => setSelectedTodo(null)}>
+            <div className="modal-sheet" onClick={e => e.stopPropagation()}>
+              <div className="modal-handle" />
+              <div className="modal-header" style={{background: selectedTodo.typ === 'zahlung' ? '#7A2410' : '#1F3A52', borderRadius:'30px 30px 0 0', padding:'18px 20px 16px'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:15,fontWeight:700,color:'#FBFAF8',lineHeight:1.4}}>{selectedTodo.aufgabe}</div>
+                  <div style={{fontSize:12,color:'rgba(251,250,248,0.6)',marginTop:3}}>{selectedTodo.catIco} {selectedTodo.docName}</div>
+                </div>
+                <button style={{width:32,height:32,borderRadius:'50%',background:'rgba(255,255,255,0.14)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#FBFAF8',fontSize:16,flexShrink:0}}
+                  onClick={() => setSelectedTodo(null)}>✕</button>
+              </div>
+              <div className="modal-body">
+
+                {selectedTodo.typ === 'zahlung' && (
+                  <div className="payment-card">
+                    <div className="payment-amount">
+                      € {(selectedTodo.betrag ?? 0).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                    </div>
+                    {selectedTodo.empfaenger && (
+                      <div className="payment-row">
+                        <span className="payment-label">Empfänger</span>
+                        <span className="payment-value">{selectedTodo.empfaenger}</span>
+                      </div>
+                    )}
+                    {selectedTodo.iban && (
+                      <div className="payment-row">
+                        <span className="payment-label">IBAN</span>
+                        <span className="payment-value" style={{fontFamily:'monospace',letterSpacing:'0.05em'}}>{selectedTodo.iban}</span>
+                      </div>
+                    )}
+                    {selectedTodo.bic && (
+                      <div className="payment-row">
+                        <span className="payment-label">BIC</span>
+                        <span className="payment-value" style={{fontFamily:'monospace'}}>{selectedTodo.bic}</span>
+                      </div>
+                    )}
+                    {selectedTodo.verwendungszweck && (
+                      <div className="payment-row">
+                        <span className="payment-label">Verwendungszweck</span>
+                        <span className="payment-value">{selectedTodo.verwendungszweck}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {selectedTodo.frist && (
+                  <div className="card" style={{padding:'12px 16px',marginBottom:10,display:'flex',alignItems:'center',gap:10}}>
+                    <span style={{fontSize:18}}>📅</span>
+                    <div>
+                      <div className="overline" style={{marginBottom:2}}>Fälligkeit</div>
+                      <div style={{fontSize:14,fontWeight:600}}>{new Date(selectedTodo.frist+'T00:00:00').toLocaleDateString('de-DE',{day:'numeric',month:'long',year:'numeric'})}</div>
+                    </div>
+                  </div>
+                )}
+
+                {selectedTodo.belegstelle && (
+                  <div className="card" style={{padding:'12px 16px',marginBottom:10}}>
+                    <div className="overline" style={{marginBottom:8}}>Belegstelle im Dokument</div>
+                    <blockquote className="belegstelle">{selectedTodo.belegstelle}</blockquote>
+                  </div>
+                )}
+
+                <button className="btn-primary btn-full" style={{marginBottom:8}}
+                  onClick={() => {
+                    const doc = docs.find(d => d.id === selectedTodo.docId)
+                    setSelectedTodo(null)
+                    if (doc) setSelectedDoc(doc)
+                  }}>
+                  Dokument öffnen
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── ANSCHREIBEN MODAL ── */}
         {anschreiben && (
           <div className="modal-overlay" onClick={() => setAnschreiben(null)}>
@@ -1414,10 +1495,19 @@ export default function Home() {
         .todo-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
         .todo-card { display:flex; align-items:flex-start; gap:12px; padding:14px 16px; background:var(--ps-surface); border-radius:16px; border:1px solid var(--ps-hairline); margin-bottom:8px; transition:opacity 180ms; box-shadow:0 1px 3px rgba(26,23,18,0.04); }
         .todo-card-done { opacity:0.5; }
+        .todo-card-payment { border-left:3px solid #C2410C; }
         .todo-check-btn { width:22px; height:22px; border-radius:50%; border:2px solid; flex-shrink:0; margin-top:2px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 120ms,border-color 120ms; font-family:inherit; }
         .todo-body { flex:1; min-width:0; }
         .todo-aufgabe { font-size:14px; font-weight:500; color:var(--ps-ink); line-height:1.45; margin-bottom:6px; }
         .todo-meta { display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:11px; color:var(--ps-faint); }
+        .pill-zahlung { background:#FBF0E8; color:#C2410C; font-weight:700; border-radius:20px; padding:2px 8px; font-size:11px; }
+        .payment-card { background:#FBF0E8; border:1px solid #F1D0C0; border-radius:14px; padding:16px; margin-bottom:12px; }
+        .payment-amount { font-size:28px; font-weight:800; color:#C2410C; margin-bottom:12px; }
+        .payment-row { display:flex; flex-direction:column; padding:8px 0; border-bottom:1px solid #F1D0C0; }
+        .payment-row:last-child { border-bottom:none; }
+        .payment-label { font-size:10px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#D4896A; margin-bottom:2px; }
+        .payment-value { font-size:14px; font-weight:600; color:#1A1712; word-break:break-all; }
+        .belegstelle { border-left:3px solid #C8C4B8; padding:10px 14px; background:#F4F2EC; border-radius:0 8px 8px 0; font-size:13px; color:#7C786E; font-style:italic; line-height:1.5; }
 
         /* Pills */
         .pill-signal { background:var(--ps-urgent-bg); color:var(--ps-urgent); border-radius:20px; font-size:12px; font-weight:600; padding:2px 10px; }

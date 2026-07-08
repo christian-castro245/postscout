@@ -32,14 +32,22 @@ JSON-Schema:
       "beschreibung": "Konkrete Aufgabe in einfacher Sprache",
       "faelligkeitsdatum": "YYYY-MM-DD oder null",
       "empfehlung": "Was die Person konkret tun soll (optional)",
-      "antwort_erforderlich": true | false
+      "antwort_erforderlich": true | false,
+      "typ": "zahlung" | "antwort" | "aktion" | "kenntnis",
+      "betrag": Zahl in Euro als Dezimalzahl oder null,
+      "empfaenger": "Name des Zahlungsempfängers oder null",
+      "iban": "IBAN des Empfängers oder null",
+      "bic": "BIC/SWIFT oder null",
+      "verwendungszweck": "Verwendungszweck / Referenznummer / Rechnungsnummer oder null",
+      "belegstelle": "Wörtliches Zitat aus dem Dokument (max 120 Zeichen) auf dem diese Aufgabe basiert"
     }
   ]
 }
 
 DATUM-REGEL: Erkannte Daten IMMER als YYYY-MM-DD formatieren. Heute ist ${new Date().toISOString().slice(0, 10)}.
 Falls ein Datum im Text steht (z.B. "02. Juli 2026") → "2026-07-02".
-Falls kein Datum erkennbar → null. NIEMALS leere Strings oder unformatierte Daten.`;
+Falls kein Datum erkennbar → null. NIEMALS leere Strings oder unformatierte Daten.
+TYP-REGEL: "zahlung" wenn Geld überwiesen/gezahlt werden muss. "antwort" wenn schriftlich geantwortet werden muss. "aktion" für sonstige Handlungen. "kenntnis" für reine Information.`;
 
 async function parseMultipart(req) {
   return new Promise((resolve, reject) => {
@@ -211,6 +219,13 @@ export default async function handler(req, res) {
     faelligkeitsdatum:    safeDate(t.faelligkeitsdatum),
     empfehlung:           t.empfehlung || null,
     antwort_erforderlich: Boolean(t.antwort_erforderlich),
+    typ:                  t.typ || 'aktion',
+    betrag:               typeof t.betrag === 'number' ? t.betrag : null,
+    empfaenger:           t.empfaenger || null,
+    iban:                 t.iban || null,
+    bic:                  t.bic || null,
+    verwendungszweck:     t.verwendungszweck || null,
+    belegstelle:          t.belegstelle || null,
     erledigt:             false,
   }));
 
@@ -225,11 +240,18 @@ export default async function handler(req, res) {
     analysiert:           true,
     aufgaben,
     todos: aufgaben.map(t => ({
-      aufgabe:      t.beschreibung,
-      frist:        t.faelligkeitsdatum,
-      dringlichkeit: dring,
-      status:       'offen',
-      erledigt:     false,
+      aufgabe:          t.beschreibung,
+      frist:            t.faelligkeitsdatum,
+      dringlichkeit:    dring,
+      status:           'offen',
+      erledigt:         false,
+      typ:              t.typ,
+      betrag:           t.betrag,
+      empfaenger:       t.empfaenger,
+      iban:             t.iban,
+      bic:              t.bic,
+      verwendungszweck: t.verwendungszweck,
+      belegstelle:      t.belegstelle,
     })),
   };
 
