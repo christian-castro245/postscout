@@ -118,6 +118,8 @@ export default function Home() {
   const [profAnrede, setProfAnrede]           = useState('du')
   const [selectedDoc, setSelectedDoc]   = useState(null)
   const [selectedTodo, setSelectedTodo] = useState(null)
+  const [pendingJobs, setPendingJobs]   = useState([])
+  const [bulkMode, setBulkMode]         = useState(false)
   const [neueNotiz, setNeueNotiz]       = useState('')
   const [notizSaving, setNotizSaving]   = useState(false)
   const [docReminder, setDocReminder]   = useState('')
@@ -349,29 +351,57 @@ export default function Home() {
   function removePhoto(idx) { setPhotos(prev => prev.filter((_,i)=>i!==idx)) }
   function handleDrop(e) {
     e.preventDefault(); e.currentTarget.classList.remove('over')
-    Array.from(e.dataTransfer.files).forEach(f=>addPhoto(f))
+    const files = Array.from(e.dataTransfer.files)
+    if (bulkMode && files.length >= 1) { analyzeFilesBulk(files) }
+    else { files.forEach(f => addPhoto(f)) }
   }
 
   // ── Analyse ───────────────────────────────────────────────────────────────
-  async function analyzeDoc() {
-    if (!photos.length) return
-    setAnalyzing(true); setScanMsg(null); setDuplikatWarnung(null)
-    try {
-      const form = new FormData()
-      for (const p of photos) {
-        const mimeType = p.mimeType || (p.file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg')
-        const blob = p.file.type ? p.file : new Blob([p.file], { type: mimeType })
-        form.append('files', blob, p.file.name || `scan_${Date.now()}.jpg`)
+  function startBackgroundJob(currentPhotos, label) {
+    const jobId = Date.now() + Math.random()
+    setPendingJobs(j => [...j, { id: jobId, label, status: 'pending' }])
+    ;(async () => {
+      try {
+        const form = new FormData()
+        for (const p of currentPhotos) {
+          const mimeType = p.mimeType || (p.file?.name?.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg')
+          const blob = p.file?.type ? p.file : new Blob([p.file], { type: mimeType })
+          form.append('files', blob, p.file?.name || `scan_${Date.now()}.jpg`)
+        }
+        const res = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${session.access_token}` },
+          body: form,
+        })
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Fehler') }
+        await loadAll()
+        setPendingJobs(j => j.map(job => job.id === jobId ? { ...job, status: 'done' } : job))
+        setTimeout(() => setPendingJobs(j => j.filter(job => job.id !== jobId)), 4000)
+      } catch(e) {
+        setPendingJobs(j => j.map(job => job.id === jobId ? { ...job, status: 'error', error: e.message } : job))
       }
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${session.access_token}` },
-        body: form,
-      })
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Fehler') }
-      setPhotos([]); await loadAll(); setView('todos')
-    } catch(e) { setScanMsg({ text:e.message, err:true }) }
-    finally { setAnalyzing(false) }
+    })()
+  }
+
+  function analyzeDoc() {
+    if (!photos.length) return
+    const currentPhotos = [...photos]
+    const label = currentPhotos[0]?.file?.name?.replace(/\.[^.]+$/, '') || 'Dokument'
+    setPhotos([]); setScanMsg(null); setDuplikatWarnung(null)
+    startBackgroundJob(currentPhotos, label)
+  }
+
+  function analyzeFilesBulk(files) {
+    files.forEach(file => {
+      const label = file.name.replace(/\.[^.]+$/, '')
+      const reader = new FileReader()
+      reader.onload = e => {
+        const base64 = e.target.result.split(',')[1]
+        const p = { file, base64, previewUrl: file.type.startsWith('image/') ? e.target.result : null, mimeType: file.type }
+        startBackgroundJob([p], label)
+      }
+      reader.readAsDataURL(file)
+    })
   }
 
   function parseFrist(frist) {
@@ -582,6 +612,31 @@ export default function Home() {
       <Script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" strategy="lazyOnload" />
 
       <div className="shell">
+
+        {/* ── ANALYSE JOBS BANNER ── */}
+        {pendingJobs.length > 0 && (
+          <div style={{position:'sticky',top:0,zIndex:60,background:'#1A2E3E',padding:'8px 16px',display:'flex',flexDirection:'column',gap:6}}>
+            {pendingJobs.map(job => (
+              <div key={job.id} style={{display:'flex',alignItems:'center',gap:10}}>
+                {job.status === 'pending' && <div className="job-spinner"/>}
+                {job.status === 'done'    && <span style={{color:'#4ade80',fontSize:15,lineHeight:1}}>✓</span>}
+                {job.status === 'error'   && <span style={{color:'#f87171',fontSize:15,lineHeight:1}}>⚠</span>}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:'#FBFAF8',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{job.label}</div>
+                  <div style={{fontSize:11,color:'rgba(251,250,248,0.55)'}}>
+                    {job.status === 'pending' ? 'Claude analysiert…'
+                      : job.status === 'done' ? 'Fertig – Todos aktualisiert'
+                      : job.error || 'Analyse fehlgeschlagen'}
+                  </div>
+                </div>
+                {job.status !== 'pending' && (
+                  <button onClick={() => setPendingJobs(j => j.filter(x => x.id !== job.id))}
+                    style={{background:'none',border:'none',cursor:'pointer',color:'rgba(251,250,248,0.4)',fontSize:14,padding:'2px 6px',fontFamily:'inherit'}}>✕</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* ── HEADER ── */}
         <header className="top-bar">
@@ -868,7 +923,22 @@ export default function Home() {
               {/* SCAN */}
               {view === 'scan' && isOwner && (
                 <div>
-                  <div className="overline" style={{marginBottom:10}}>Fotos / Seiten</div>
+                  <div style={{display:'flex',alignItems:'center',marginBottom:10}}>
+                    <div className="overline" style={{flex:1}}>Fotos / Seiten</div>
+                    <button onClick={() => setBulkMode(b => !b)}
+                      style={{fontSize:11,fontWeight:700,padding:'4px 11px',borderRadius:20,border:'1.5px solid',
+                        borderColor: bulkMode ? '#C2410C' : '#C8C4B8',
+                        background: bulkMode ? '#FBF0E8' : 'transparent',
+                        color: bulkMode ? '#C2410C' : '#9A968B',
+                        cursor:'pointer',fontFamily:'inherit',transition:'all 150ms'}}>
+                      {bulkMode ? 'Bulk: AN' : 'Bulk: AUS'}
+                    </button>
+                  </div>
+                  {bulkMode && (
+                    <div style={{fontSize:12,color:'#7C786E',background:'#F4F2EC',borderRadius:11,padding:'8px 12px',marginBottom:12,lineHeight:1.5}}>
+                      Bulk-Modus: Jede Datei wird als eigenes Dokument analysiert. Mehrere Dateien gleichzeitig auswählen.
+                    </div>
+                  )}
                   {duplikatWarnung && (
                     <div className="warn-box">
                       <div style={{fontSize:13,fontWeight:700,marginBottom:6}}>Mögliches Duplikat</div>
@@ -887,7 +957,15 @@ export default function Home() {
                     onDragLeave={e => e.currentTarget.classList.remove('over')}
                     onDrop={handleDrop}>
                     <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple style={{display:'none'}}
-                      onChange={e => { Array.from(e.target.files).forEach(f => addPhoto(f)); e.target.value = '' }} />
+                      onChange={e => {
+                        const files = Array.from(e.target.files)
+                        if (bulkMode && files.length >= 1) {
+                          analyzeFilesBulk(files)
+                        } else {
+                          files.forEach(f => addPhoto(f))
+                        }
+                        e.target.value = ''
+                      }} />
                     <div style={{width:56,height:56,borderRadius:16,background:'#EAF0F4',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px',color:'#1F3A52'}}>
                       {Icons.camera}
                     </div>
@@ -920,12 +998,13 @@ export default function Home() {
                   )}
 
                   {scanMsg && <div className={`msg ${scanMsg.err ? 'msg-err' : 'msg-ok'}`}>{scanMsg.text}</div>}
-                  <button className="btn-primary btn-full" onClick={analyzeDoc} disabled={!photos.length || analyzing}
-                    style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-                    {Icons.sparkle}
-                    {analyzing ? 'Wird analysiert…' : 'Brief analysieren'}
-                  </button>
-                  {analyzing && <div className="caption" style={{textAlign:'center',marginTop:8}}>Claude liest den Brief — 10–20 Sekunden</div>}
+                  {!bulkMode && (
+                    <button className="btn-primary btn-full" onClick={analyzeDoc} disabled={!photos.length}
+                      style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+                      {Icons.sparkle}
+                      Brief analysieren
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1210,81 +1289,116 @@ export default function Home() {
         )}
 
         {/* ── TODO DETAIL MODAL ── */}
-        {selectedTodo && (
-          <div className="modal-overlay" onClick={() => setSelectedTodo(null)}>
-            <div className="modal-sheet" onClick={e => e.stopPropagation()}>
-              <div className="modal-handle" />
-              <div className="modal-header" style={{background: selectedTodo.typ === 'zahlung' ? '#7A2410' : '#1F3A52', borderRadius:'30px 30px 0 0', padding:'18px 20px 16px'}}>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:15,fontWeight:700,color:'#FBFAF8',lineHeight:1.4}}>{selectedTodo.aufgabe}</div>
-                  <div style={{fontSize:12,color:'rgba(251,250,248,0.6)',marginTop:3}}>{selectedTodo.catIco} {selectedTodo.docName}</div>
+        {selectedTodo && (() => {
+          const tdTyp = selectedTodo.typ || 'aktion'
+          const tdHdrBg = tdTyp === 'zahlung' ? '#7A2410' : tdTyp === 'antwort' ? '#1F3A52' : tdTyp === 'aktion' ? '#6B3A08' : '#3A362E'
+          const tdTypLabel = tdTyp === 'zahlung' ? '💸 Zahlung' : tdTyp === 'antwort' ? '✉️ Antwort' : tdTyp === 'aktion' ? '✅ Aktion' : 'ℹ️ Zur Kenntnis'
+          const tdDring = DRING[selectedTodo.dringlichkeit] || DRING.niedrig
+          return (
+            <div className="modal-overlay" onClick={() => setSelectedTodo(null)}>
+              <div className="modal-sheet" onClick={e => e.stopPropagation()}>
+                <div className="modal-handle" />
+                <div className="modal-header" style={{background: tdHdrBg, borderRadius:'30px 30px 0 0', padding:'18px 20px 16px'}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:5}}>
+                      <span style={{fontSize:10,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'rgba(251,250,248,0.55)'}}>{tdTypLabel}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:tdDring.dot,background:'rgba(255,255,255,0.12)',borderRadius:20,padding:'2px 8px'}}>{tdDring.label}</span>
+                    </div>
+                    <div style={{fontSize:15,fontWeight:700,color:'#FBFAF8',lineHeight:1.4}}>{selectedTodo.aufgabe}</div>
+                    <div style={{fontSize:12,color:'rgba(251,250,248,0.6)',marginTop:3}}>{selectedTodo.catIco} {selectedTodo.docName}</div>
+                  </div>
+                  <button style={{width:32,height:32,borderRadius:'50%',background:'rgba(255,255,255,0.14)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#FBFAF8',fontSize:16,flexShrink:0}}
+                    onClick={() => setSelectedTodo(null)}>✕</button>
                 </div>
-                <button style={{width:32,height:32,borderRadius:'50%',background:'rgba(255,255,255,0.14)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#FBFAF8',fontSize:16,flexShrink:0}}
-                  onClick={() => setSelectedTodo(null)}>✕</button>
-              </div>
-              <div className="modal-body">
+                <div className="modal-body">
 
-                {selectedTodo.typ === 'zahlung' && (
-                  <div className="payment-card">
-                    <div className="payment-amount">
-                      € {(selectedTodo.betrag ?? 0).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                  {/* Frist */}
+                  {selectedTodo.frist && (
+                    <div className="card" style={{padding:'12px 16px',marginBottom:10,display:'flex',alignItems:'center',gap:10}}>
+                      <span style={{fontSize:20}}>📅</span>
+                      <div>
+                        <div className="overline" style={{marginBottom:2}}>Fälligkeit</div>
+                        <div style={{fontSize:14,fontWeight:600,color: selectedTodo.dringlichkeit==='ueberfaellig'?'#B3402C':selectedTodo.dringlichkeit==='hoch'?'#C2410C':'var(--ps-ink)'}}>
+                          {new Date(selectedTodo.frist+'T00:00:00').toLocaleDateString('de-DE',{day:'numeric',month:'long',year:'numeric'})}
+                        </div>
+                      </div>
                     </div>
-                    {selectedTodo.empfaenger && (
-                      <div className="payment-row">
-                        <span className="payment-label">Empfänger</span>
-                        <span className="payment-value">{selectedTodo.empfaenger}</span>
-                      </div>
-                    )}
-                    {selectedTodo.iban && (
-                      <div className="payment-row">
-                        <span className="payment-label">IBAN</span>
-                        <span className="payment-value" style={{fontFamily:'monospace',letterSpacing:'0.05em'}}>{selectedTodo.iban}</span>
-                      </div>
-                    )}
-                    {selectedTodo.bic && (
-                      <div className="payment-row">
-                        <span className="payment-label">BIC</span>
-                        <span className="payment-value" style={{fontFamily:'monospace'}}>{selectedTodo.bic}</span>
-                      </div>
-                    )}
-                    {selectedTodo.verwendungszweck && (
-                      <div className="payment-row">
-                        <span className="payment-label">Verwendungszweck</span>
-                        <span className="payment-value">{selectedTodo.verwendungszweck}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
+                  )}
 
-                {selectedTodo.frist && (
-                  <div className="card" style={{padding:'12px 16px',marginBottom:10,display:'flex',alignItems:'center',gap:10}}>
-                    <span style={{fontSize:18}}>📅</span>
-                    <div>
-                      <div className="overline" style={{marginBottom:2}}>Fälligkeit</div>
-                      <div style={{fontSize:14,fontWeight:600}}>{new Date(selectedTodo.frist+'T00:00:00').toLocaleDateString('de-DE',{day:'numeric',month:'long',year:'numeric'})}</div>
+                  {/* Empfehlung — Claude's context on WHY this todo exists */}
+                  {selectedTodo.empfehlung && (
+                    <div className="card" style={{padding:'12px 16px',marginBottom:10}}>
+                      <div className="overline" style={{marginBottom:6}}>Was tun?</div>
+                      <p style={{fontSize:14,lineHeight:1.6,color:'#3A362E'}}>{selectedTodo.empfehlung}</p>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {selectedTodo.belegstelle && (
-                  <div className="card" style={{padding:'12px 16px',marginBottom:10}}>
-                    <div className="overline" style={{marginBottom:8}}>Belegstelle im Dokument</div>
-                    <blockquote className="belegstelle">{selectedTodo.belegstelle}</blockquote>
-                  </div>
-                )}
+                  {/* Payment block */}
+                  {tdTyp === 'zahlung' && (
+                    <div className="payment-card">
+                      {selectedTodo.betrag != null && (
+                        <div className="payment-amount">€ {selectedTodo.betrag.toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                      )}
+                      {selectedTodo.empfaenger && (
+                        <div className="payment-row">
+                          <span className="payment-label">Empfänger</span>
+                          <span className="payment-value">{selectedTodo.empfaenger}</span>
+                        </div>
+                      )}
+                      {selectedTodo.iban && (
+                        <div className="payment-row">
+                          <span className="payment-label">IBAN</span>
+                          <span className="payment-value" style={{fontFamily:'monospace',letterSpacing:'0.04em'}}>{selectedTodo.iban}</span>
+                        </div>
+                      )}
+                      {selectedTodo.bic && (
+                        <div className="payment-row">
+                          <span className="payment-label">BIC</span>
+                          <span className="payment-value" style={{fontFamily:'monospace'}}>{selectedTodo.bic}</span>
+                        </div>
+                      )}
+                      {selectedTodo.verwendungszweck && (
+                        <div className="payment-row">
+                          <span className="payment-label">Verwendungszweck</span>
+                          <span className="payment-value">{selectedTodo.verwendungszweck}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                <button className="btn-primary btn-full" style={{marginBottom:8}}
-                  onClick={() => {
-                    const doc = docs.find(d => d.id === selectedTodo.docId)
-                    setSelectedTodo(null)
-                    if (doc) setSelectedDoc(doc)
-                  }}>
-                  Dokument öffnen
-                </button>
+                  {/* Belegstelle — document quote for all todos */}
+                  {selectedTodo.belegstelle && (
+                    <div className="card" style={{padding:'12px 16px',marginBottom:10}}>
+                      <div className="overline" style={{marginBottom:8}}>Belegstelle im Dokument</div>
+                      <blockquote className="belegstelle">{selectedTodo.belegstelle}</blockquote>
+                    </div>
+                  )}
+
+                  {/* Anschreiben button for antwort type */}
+                  {tdTyp === 'antwort' && (
+                    <button className="btn-secondary btn-full" style={{marginBottom:8}}
+                      onClick={() => {
+                        const doc = docs.find(d => d.id === selectedTodo.docId)
+                        setSelectedTodo(null)
+                        if (doc) genAnschreiben(doc)
+                      }}>
+                      ✉️ Anschreiben erstellen
+                    </button>
+                  )}
+
+                  <button className="btn-primary btn-full"
+                    onClick={() => {
+                      const doc = docs.find(d => d.id === selectedTodo.docId)
+                      setSelectedTodo(null)
+                      if (doc) setSelectedDoc(doc)
+                    }}>
+                    Dokument öffnen
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* ── ANSCHREIBEN MODAL ── */}
         {anschreiben && (
@@ -1496,6 +1610,8 @@ export default function Home() {
         .todo-card { display:flex; align-items:flex-start; gap:12px; padding:14px 16px; background:var(--ps-surface); border-radius:16px; border:1px solid var(--ps-hairline); margin-bottom:8px; transition:opacity 180ms; box-shadow:0 1px 3px rgba(26,23,18,0.04); }
         .todo-card-done { opacity:0.5; }
         .todo-card-payment { border-left:3px solid #C2410C; }
+        .job-spinner { width:14px; height:14px; border:2px solid rgba(251,250,248,0.2); border-top-color:rgba(251,250,248,0.85); border-radius:50%; animation:spin 0.7s linear infinite; flex-shrink:0; }
+        @keyframes spin { to { transform:rotate(360deg); } }
         .todo-check-btn { width:22px; height:22px; border-radius:50%; border:2px solid; flex-shrink:0; margin-top:2px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 120ms,border-color 120ms; font-family:inherit; }
         .todo-body { flex:1; min-width:0; }
         .todo-aufgabe { font-size:14px; font-weight:500; color:var(--ps-ink); line-height:1.45; margin-bottom:6px; }
