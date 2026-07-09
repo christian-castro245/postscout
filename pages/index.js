@@ -408,6 +408,34 @@ export default function Home() {
     })
   }
 
+  async function runBulkReanalysis() {
+    const toUpdate = docs.filter(d =>
+      d.analysiert && (d.bild_url || d.bild_urls?.length) &&
+      d.todos?.length > 0 &&
+      d.todos.some(t => t.kontext === undefined || t.kontext === null)
+    )
+    if (!toUpdate.length) { alert('Alle Dokumente sind bereits auf dem aktuellen Stand.'); return }
+
+    for (const doc of toUpdate) {
+      const jobId = Date.now() + Math.random()
+      const label = doc.absender || doc.dateiname || 'Dokument'
+      setPendingJobs(j => [...j, { id: jobId, label, status: 'pending' }])
+      try {
+        const res = await fetch('/api/reanalyze-single', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+          body: JSON.stringify({ docId: doc.id }),
+        })
+        if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || 'Fehler') }
+        setPendingJobs(j => j.map(job => job.id === jobId ? { ...job, status: 'done' } : job))
+        setTimeout(() => setPendingJobs(j => j.filter(job => job.id !== jobId)), 4000)
+      } catch(e) {
+        setPendingJobs(j => j.map(job => job.id === jobId ? { ...job, status: 'error', error: e.message } : job))
+      }
+    }
+    await loadAll()
+  }
+
   function parseFrist(frist) {
     if (!frist) return null
     const p = frist.split('.'); if (p.length===3) return `${p[2]}-${p[1]}-${p[0]}`; return null
@@ -1020,6 +1048,24 @@ export default function Home() {
                     <div className="kpi-cell"><div className="kpi-num">{docs.filter(d=>d.steuerrelevant).length}</div><div className="kpi-lbl">Steuer</div></div>
                     <div className="kpi-cell"><div className="kpi-num">{openTodos}</div><div className="kpi-lbl">Offen</div></div>
                   </div>
+                  {isOwner && (() => {
+                    const outdated = docs.filter(d =>
+                      d.analysiert && (d.bild_url || d.bild_urls?.length) &&
+                      d.todos?.length > 0 && d.todos.some(t => t.kontext == null)
+                    ).length
+                    return outdated > 0 ? (
+                      <div style={{background:'#FBF4E6',border:'1px solid #F1D0A0',borderRadius:14,padding:'12px 14px',marginBottom:12,display:'flex',alignItems:'center',gap:12}}>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:13,fontWeight:700,color:'#8A5A12'}}>Aufgaben-Update verfügbar</div>
+                          <div style={{fontSize:12,color:'#B8924A',marginTop:2}}>{outdated} Dokument{outdated!==1?'e':''} können neu analysiert werden — mit Kontext, Belegstelle & Highlight</div>
+                        </div>
+                        <button onClick={runBulkReanalysis}
+                          style={{padding:'8px 14px',borderRadius:11,border:'none',background:'#8A5A12',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',fontFamily:'inherit'}}>
+                          Aktualisieren
+                        </button>
+                      </div>
+                    ) : null
+                  })()}
                   <div className="chip-bar">
                     {['Alle', ...Object.keys(CATS)].map(c => (
                       <button key={c} className={`chip${docFilter === c ? ' chip-active' : ''}`} onClick={() => setDocFilter(c)}>{c}</button>
