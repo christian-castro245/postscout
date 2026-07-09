@@ -23,9 +23,10 @@ JSON-Schema:
   "antwort_erforderlich": true | false,
   "aufgaben": [
     {
-      "beschreibung": "Konkrete Aufgabe in einfacher Sprache",
+      "beschreibung": "Aufgabe MIT konkreten Details — IMMER spezifisch: Betrag in €, Name, Referenz, Frist. BEISPIEL GUT: '€247,50 offener Posten Nebenkosten 2025 an Hausverwaltung bis 31.07.2026 überweisen'. BEISPIEL SCHLECHT: 'Betrag überweisen'.",
+      "kontext": "Ein Satz: Wer fordert was und warum? Für jemanden der diesen Brief nie gesehen hat.",
       "faelligkeitsdatum": "YYYY-MM-DD oder null",
-      "empfehlung": "Was die Person konkret tun soll (optional)",
+      "empfehlung": "Was die Person konkret tun soll — Schritt für Schritt falls sinnvoll",
       "antwort_erforderlich": true | false,
       "typ": "zahlung" | "antwort" | "aktion" | "kenntnis",
       "betrag": Zahl in Euro als Dezimalzahl oder null,
@@ -33,7 +34,8 @@ JSON-Schema:
       "iban": "IBAN des Empfängers oder null",
       "bic": "BIC/SWIFT oder null",
       "verwendungszweck": "Verwendungszweck / Referenznummer / Rechnungsnummer oder null",
-      "belegstelle": "Wörtliches Zitat aus dem Dokument (max 120 Zeichen) auf dem diese Aufgabe basiert"
+      "belegstelle": "Wörtliches Zitat aus dem Dokument (max 150 Zeichen) — die Textstelle auf der diese Aufgabe basiert",
+      "belegstelle_bbox": {"page": 0, "x": 0.05, "y": 0.60, "w": 0.90, "h": 0.08}
     }
   ]
 }
@@ -41,7 +43,9 @@ JSON-Schema:
 DATUM-REGEL: Erkannte Daten IMMER als YYYY-MM-DD formatieren. Heute ist ${new Date().toISOString().slice(0, 10)}.
 Falls ein Datum im Text steht (z.B. "02. Juli 2026") → "2026-07-02".
 Falls kein Datum erkennbar → null. NIEMALS leere Strings oder unformatierte Daten.
-TYP-REGEL: "zahlung" wenn Geld überwiesen/gezahlt werden muss. "antwort" wenn schriftlich geantwortet werden muss. "aktion" für sonstige Handlungen. "kenntnis" für reine Information.`
+TYP-REGEL: "zahlung" wenn Geld überwiesen/gezahlt werden muss. "antwort" wenn schriftlich geantwortet werden muss. "aktion" für sonstige Handlungen. "kenntnis" für reine Information.
+BESCHREIBUNGS-REGEL: NIEMALS generisch. Immer: konkreter Betrag + Empfänger ODER spezifische Anforderung + Referenz aus dem Dokument. Die Beschreibung muss ohne das Originaldokument verständlich sein.
+BBOX-REGEL: belegstelle_bbox = Position des Belegstellen-Textes im Dokument. Koordinaten relativ zur Seitengröße (0.0 = linker/oberer Rand, 1.0 = rechter/unterer Rand). x/y = obere linke Ecke, w/h = Breite/Höhe. page = 0-basierter Seitenindex.`
 
 const DRING_MAP = {
   'Überfällig':         'ueberfaellig',
@@ -129,6 +133,7 @@ export default async function handler(req, res) {
 
   const aufgaben = (parsed.aufgaben || []).map(t => ({
     beschreibung:         t.beschreibung || '',
+    kontext:              t.kontext || null,
     faelligkeitsdatum:    safeDate(t.faelligkeitsdatum),
     empfehlung:           t.empfehlung || null,
     antwort_erforderlich: Boolean(t.antwort_erforderlich),
@@ -139,6 +144,7 @@ export default async function handler(req, res) {
     bic:                  t.bic || null,
     verwendungszweck:     t.verwendungszweck || null,
     belegstelle:          t.belegstelle || null,
+    belegstelle_bbox:     t.belegstelle_bbox || null,
     erledigt:             false,
   }))
 
@@ -162,6 +168,7 @@ export default async function handler(req, res) {
     aufgaben,
     todos: aufgaben.map(t => ({
       aufgabe:          t.beschreibung,
+      kontext:          t.kontext,
       frist:            t.faelligkeitsdatum,
       dringlichkeit:    dring,
       status:           'offen',
@@ -173,6 +180,7 @@ export default async function handler(req, res) {
       bic:              t.bic,
       verwendungszweck: t.verwendungszweck,
       belegstelle:      t.belegstelle,
+      belegstelle_bbox: t.belegstelle_bbox,
     })),
     jahr: new Date().getFullYear(),
   })

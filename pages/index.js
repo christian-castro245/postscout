@@ -118,8 +118,9 @@ export default function Home() {
   const [profAnrede, setProfAnrede]           = useState('du')
   const [selectedDoc, setSelectedDoc]   = useState(null)
   const [selectedTodo, setSelectedTodo] = useState(null)
-  const [pendingJobs, setPendingJobs]   = useState([])
-  const [bulkMode, setBulkMode]         = useState(false)
+  const [pendingJobs, setPendingJobs]       = useState([])
+  const [bulkMode, setBulkMode]             = useState(false)
+  const [activeTodoHighlight, setActiveTodoHighlight] = useState(null)
   const [neueNotiz, setNeueNotiz]       = useState('')
   const [notizSaving, setNotizSaving]   = useState(false)
   const [docReminder, setDocReminder]   = useState('')
@@ -209,7 +210,10 @@ export default function Home() {
         flat.push({ ...t, docId: doc.id, docName: doc.absender || doc.dateiname,
           catIco: cat.ico, todoIdx: idx,
           docBildUrl: doc.bild_url, docBildUrls: doc.bild_urls,
-          dringlichkeit: t.dringlichkeit || doc.dringlichkeit || 'niedrig' })
+          dringlichkeit: t.dringlichkeit || doc.dringlichkeit || 'niedrig',
+          kontext: t.kontext || null,
+          belegstelleBbox: t.belegstelle_bbox || null,
+        })
       })
     })
     flat.sort((a, b) => {
@@ -1207,7 +1211,7 @@ export default function Home() {
 
         {/* ── DOKUMENT DETAIL MODAL ── */}
         {selectedDoc && (
-          <div className="modal-overlay" onClick={() => setSelectedDoc(null)}>
+          <div className="modal-overlay" onClick={() => { setSelectedDoc(null); setActiveTodoHighlight(null) }}>
             <div className="modal-sheet" onClick={e => e.stopPropagation()}>
               <div className="modal-handle" />
               <div className="modal-header" style={{background:'#1F3A52',borderRadius:'30px 30px 0 0',padding:'18px 20px 16px'}}>
@@ -1216,9 +1220,39 @@ export default function Home() {
                   <div style={{fontSize:12,color:'rgba(251,250,248,0.6)',marginTop:2}}>{selectedDoc.kategorie} · {new Date(selectedDoc.erstellt_am).toLocaleDateString('de-DE')}</div>
                 </div>
                 <button style={{width:32,height:32,borderRadius:'50%',background:'rgba(255,255,255,0.14)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#FBFAF8',fontSize:16,flexShrink:0}}
-                  onClick={() => setSelectedDoc(null)}>✕</button>
+                  onClick={() => { setSelectedDoc(null); setActiveTodoHighlight(null) }}>✕</button>
               </div>
               <div className="modal-body">
+                {/* Dokumentbild mit optionalem Highlight */}
+                {(selectedDoc.bild_urls?.length > 0 || selectedDoc.bild_url) && (
+                  <div style={{marginBottom:12}}>
+                    {(selectedDoc.bild_urls || [selectedDoc.bild_url]).filter(Boolean).map((url, pageIdx) => (
+                      <div key={pageIdx} style={{position:'relative',marginBottom:6,borderRadius:10,overflow:'hidden',border:'1px solid #EFEDE6',background:'#F4F2EC'}}>
+                        <img src={url} style={{width:'100%',display:'block'}} alt={`Seite ${pageIdx+1}`} />
+                        {activeTodoHighlight && activeTodoHighlight.page === pageIdx && (
+                          <div style={{
+                            position:'absolute',
+                            left: `${activeTodoHighlight.x * 100}%`,
+                            top:  `${activeTodoHighlight.y * 100}%`,
+                            width:`${activeTodoHighlight.w * 100}%`,
+                            height:`${activeTodoHighlight.h * 100}%`,
+                            background:'rgba(251,191,36,0.28)',
+                            border:'2px solid rgba(245,158,11,0.9)',
+                            borderRadius:3,
+                            pointerEvents:'none',
+                            boxShadow:'0 0 0 3px rgba(251,191,36,0.15)',
+                          }}/>
+                        )}
+                      </div>
+                    ))}
+                    {activeTodoHighlight && (
+                      <div style={{fontSize:11,color:'#8A5A12',fontWeight:600,textAlign:'center',padding:'4px 0'}}>
+                        🔍 Markierte Stelle ist die Grundlage dieser Aufgabe
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {selectedDoc.zusammenfassung && (
                   <div className="card" style={{padding:16,marginBottom:10}}>
                     <div className="overline" style={{marginBottom:8}}>Zusammenfassung</div>
@@ -1312,6 +1346,14 @@ export default function Home() {
                 </div>
                 <div className="modal-body">
 
+                  {/* Kontext — WHY this todo was created, for someone who hasn't read the letter */}
+                  {selectedTodo.kontext && (
+                    <div style={{background:'#F4F2EC',borderRadius:12,padding:'12px 14px',marginBottom:10,borderLeft:'3px solid #C8C4B8'}}>
+                      <div className="overline" style={{marginBottom:5,color:'#9A968B'}}>Worum geht es?</div>
+                      <p style={{fontSize:14,lineHeight:1.6,color:'#3A362E',fontWeight:500}}>{selectedTodo.kontext}</p>
+                    </div>
+                  )}
+
                   {/* Frist */}
                   {selectedTodo.frist && (
                     <div className="card" style={{padding:'12px 16px',marginBottom:10,display:'flex',alignItems:'center',gap:10}}>
@@ -1325,7 +1367,7 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Empfehlung — Claude's context on WHY this todo exists */}
+                  {/* Empfehlung */}
                   {selectedTodo.empfehlung && (
                     <div className="card" style={{padding:'12px 16px',marginBottom:10}}>
                       <div className="overline" style={{marginBottom:6}}>Was tun?</div>
@@ -1389,10 +1431,11 @@ export default function Home() {
                   <button className="btn-primary btn-full"
                     onClick={() => {
                       const doc = docs.find(d => d.id === selectedTodo.docId)
+                      setActiveTodoHighlight(selectedTodo.belegstelleBbox || null)
                       setSelectedTodo(null)
                       if (doc) setSelectedDoc(doc)
                     }}>
-                    Dokument öffnen
+                    {selectedTodo.belegstelleBbox ? '🔍 Belegstelle im Dokument zeigen' : 'Dokument öffnen'}
                   </button>
                 </div>
               </div>
