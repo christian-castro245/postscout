@@ -127,7 +127,15 @@ export default function Home() {
   const [kontakte, setKontakte]         = useState([])
   const [cameraOpen, setCameraOpen]     = useState(false)
   const [scanQuality, setScanQuality]   = useState('neutral')
+  const [erklaerOpen, setErklaerOpen]     = useState(false)
+  const [erklaerFrage, setErklaerFrage]   = useState(null)
+  const [erklaerAntwort, setErklaerAntwort] = useState(null)
+  const [erklaerLoading, setErklaerLoading] = useState(false)
+  const [antwortDoc, setAntwortDoc]     = useState(null)
+  const [antwortText, setAntwortText]   = useState(null)
+  const [antwortLoading, setAntwortLoading] = useState(false)
   const fileRef          = useRef()
+  const galleryRef       = useRef()
   const videoRef         = useRef()
   const canvasRef        = useRef()
   const scanIntervalRef  = useRef()
@@ -518,6 +526,48 @@ export default function Home() {
   }
   function mailAnschreiben() {
     window.open(`mailto:${anschreibenDoc?.absender_email||''}?subject=${encodeURIComponent(anschreiben.betreff||'')}&body=${encodeURIComponent(anschreiben.anschreiben||'')}`, '_blank')
+  }
+
+  // ── Antwort-Generator ─────────────────────────────────────────────────────
+  async function genAntwort(doc) {
+    setAntwortDoc(doc); setAntwortText(null); setAntwortLoading(true)
+    try {
+      const res = await fetch('/api/generate-reply', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dokumentId: doc.id,
+          aufgabe: doc.todos?.find(t => t.typ === 'antwort')?.aufgabe || 'Antwort erforderlich',
+          absender: doc.absender || '',
+          betreff: doc.betreff || doc.dateiname || '',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Fehler')
+      setAntwortText(data.text)
+    } catch(e) { setAntwortText('__err__' + e.message) }
+    setAntwortLoading(false)
+  }
+  function mailAntwort() {
+    if (!antwortText || antwortText.startsWith('__err__')) return
+    window.open(`mailto:${antwortDoc?.absender_email||''}?subject=${encodeURIComponent('AW: '+(antwortDoc?.betreff||antwortDoc?.dateiname||''))}&body=${encodeURIComponent(antwortText)}`, '_blank')
+  }
+  function copyAntwort() {
+    if (!antwortText || antwortText.startsWith('__err__')) return
+    navigator.clipboard?.writeText(antwortText).catch(() => {})
+  }
+
+  // ── Erkläre mir das ───────────────────────────────────────────────────────
+  async function erklaerMir(doc, frage) {
+    setErklaerFrage(frage); setErklaerAntwort(null); setErklaerLoading(true)
+    try {
+      const res = await fetch('/api/erklaer-mir', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zusammenfassung: doc.zusammenfassung || doc.dateiname, frage }),
+      })
+      const data = await res.json()
+      setErklaerAntwort(res.ok ? data.antwort : ('__err__' + (data.error || 'Fehler')))
+    } catch(e) { setErklaerAntwort('__err__' + e.message) }
+    setErklaerLoading(false)
   }
 
   // ── Familie ───────────────────────────────────────────────────────────────
@@ -998,16 +1048,36 @@ export default function Home() {
                         }
                         e.target.value = ''
                       }} />
-                    <div style={{width:56,height:56,borderRadius:16,background:'#EAF0F4',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px',color:'#1F3A52'}}>
-                      {Icons.camera}
+                    <input ref={galleryRef} type="file" accept="image/*" multiple style={{display:'none'}}
+                      onChange={e => {
+                        Array.from(e.target.files).forEach(f => addPhoto(f))
+                        e.target.value = ''
+                      }} />
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+                      <button onClick={e => { e.stopPropagation(); openCamera() }}
+                        style={{border:'1.5px solid #BBD0DE',borderRadius:16,padding:'18px 12px',background:'#EAF0F4',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:8,fontFamily:'inherit'}}>
+                        <span style={{fontSize:28}}>📷</span>
+                        <div style={{fontSize:14,fontWeight:700,color:'#1F3A52'}}>Foto aufnehmen</div>
+                        <div style={{fontSize:11,color:'#6B8FAA'}}>Kamera öffnen</div>
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); galleryRef.current?.click() }}
+                        style={{border:'1.5px solid #C8C4B8',borderRadius:16,padding:'18px 12px',background:'#F4F2EC',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:8,fontFamily:'inherit'}}>
+                        <span style={{fontSize:28}}>🖼</span>
+                        <div style={{fontSize:14,fontWeight:700,color:'#3A362E'}}>Aus Galerie</div>
+                        <div style={{fontSize:11,color:'#9A968B'}}>Foto wählen</div>
+                      </button>
                     </div>
-                    <div style={{fontSize:15,fontWeight:600,marginBottom:4}}>
-                      {photos.length > 0 ? 'Weitere Seite hinzufügen' : 'Brief oder Foto aufnehmen'}
-                    </div>
-                    <div className="caption">Mehrere Seiten möglich — z.B. Vorder- und Rückseite</div>
-                    <div style={{display:'flex',gap:8,justifyContent:'center',marginTop:14}}>
-                      <button className="btn-primary" onClick={e => { e.stopPropagation(); openCamera() }}>Aufnehmen</button>
-                      <button className="btn-secondary" onClick={e => { e.stopPropagation(); fileRef.current.click() }}>Datei wählen</button>
+                    <button onClick={e => { e.stopPropagation(); fileRef.current?.click() }}
+                      style={{width:'100%',border:'1.5px solid #C8C4B8',borderRadius:14,padding:'14px 16px',background:'#FBFAF8',cursor:'pointer',display:'flex',alignItems:'center',gap:12,fontFamily:'inherit',marginBottom:10}}>
+                      <span style={{fontSize:22}}>📄</span>
+                      <div style={{textAlign:'left'}}>
+                        <div style={{fontSize:14,fontWeight:700,color:'#3A362E'}}>PDF oder Datei</div>
+                        <div style={{fontSize:11,color:'#9A968B'}}>Dokument vom Speicher</div>
+                      </div>
+                    </button>
+                    <div style={{background:'#FBF4E6',border:'1px solid #F1D0A0',borderRadius:12,padding:'10px 14px',display:'flex',gap:8,alignItems:'flex-start'}}>
+                      <span style={{fontSize:16,flexShrink:0}}>💡</span>
+                      <div style={{fontSize:12,color:'#8A5A12',lineHeight:1.5}}>Tipp: Brief flach auf den Tisch legen, Lampe einschalten. Dann scharf und klar.</div>
                     </div>
                   </div>
 
@@ -1100,7 +1170,7 @@ export default function Home() {
                             {isOwner && (
                               <div className="doc-actions" onClick={e => e.stopPropagation()}>
                                 <button className="btn-ghost btn-sm" onClick={() => downloadDoc(d.storage_path, d.dateiname)}>Laden</button>
-                                <button className="btn-ghost btn-sm" style={{color:'#1F3A52',borderColor:'#BBD0DE'}} onClick={() => { setSelectedDoc(null); genAnschreiben(d) }}>Anschreiben</button>
+                                <button className="btn-ghost btn-sm" style={{color:'#1F3A52',borderColor:'#BBD0DE'}} onClick={() => { setSelectedDoc(null); genAnschreiben(d) }}>Formelles Schreiben</button>
                                 <button className="btn-ghost btn-sm btn-danger" onClick={() => deleteDoc(d.id, d.storage_path)}>Löschen</button>
                               </div>
                             )}
@@ -1231,25 +1301,35 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Top fade */}
-            <div style={{position:'absolute',top:0,left:0,right:0,height:'10%',background:'linear-gradient(to bottom,rgba(0,0,0,0.5),transparent)',pointerEvents:'none'}}/>
+            {/* Top instruction bar */}
+            <div style={{position:'absolute',top:0,left:0,right:0,padding:'max(18px,env(safe-area-inset-top)) 20px 14px',background:'linear-gradient(to bottom,rgba(0,0,0,0.72) 70%,transparent)'}}>
+              <div style={{textAlign:'center',color:'#fff',fontWeight:700,fontSize:15,letterSpacing:'0.01em'}}>
+                {scanQuality==='dark' ? '💡 Mehr Licht — Lampe einschalten'
+                  : scanQuality==='bright' ? '☁️ Zu hell — Schatten machen'
+                  : scanQuality==='good' ? '✓ Perfekt — jetzt aufnehmen'
+                  : 'Brief in den Rahmen legen'}
+              </div>
+              <div style={{textAlign:'center',color:'rgba(255,255,255,0.6)',fontSize:12,marginTop:4}}>
+                Handy ruhig halten · Brief flach legen
+              </div>
+            </div>
 
             {/* Bottom controls */}
             <div style={{position:'absolute',bottom:0,left:0,right:0,
-              padding:`24px 44px max(32px,env(safe-area-inset-bottom))`,
+              padding:`24px 36px max(36px,env(safe-area-inset-bottom))`,
               background:'linear-gradient(to top,rgba(0,0,0,0.65) 60%,transparent)',
               display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <button onClick={closeCamera}
-                style={{width:52,height:52,borderRadius:'50%',border:'2px solid rgba(255,255,255,0.45)',background:'rgba(0,0,0,0.4)',color:'#fff',fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'inherit'}}>
-                ✕
+              <button onClick={() => { closeCamera(); galleryRef.current?.click() }}
+                style={{width:56,height:56,borderRadius:'50%',border:'2px solid rgba(255,255,255,0.45)',background:'rgba(0,0,0,0.4)',color:'rgba(255,255,255,0.85)',fontSize:22,cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'inherit',gap:0,lineHeight:1}}>
+                🖼
               </button>
               <button onClick={capturePhoto}
-                style={{width:78,height:78,borderRadius:'50%',padding:5,border:`4px solid ${scanQuality==='dark'||scanQuality==='bright'?'#f97316':'rgba(255,255,255,0.9)'}`,background:'transparent',cursor:'pointer',transition:'border-color 350ms'}}>
+                style={{width:88,height:88,borderRadius:'50%',padding:5,border:`4px solid ${scanQuality==='dark'||scanQuality==='bright'?'#f97316':'rgba(255,255,255,0.9)'}`,background:'transparent',cursor:'pointer',transition:'border-color 350ms'}}>
                 <div style={{width:'100%',height:'100%',borderRadius:'50%',background:scanQuality==='good'?'#22c55e':'rgba(255,255,255,0.92)',transition:'background 350ms'}}/>
               </button>
               <button onClick={() => { closeCamera(); fileRef.current?.click() }}
-                style={{width:52,height:52,borderRadius:'50%',border:'2px solid rgba(255,255,255,0.45)',background:'rgba(0,0,0,0.4)',color:'rgba(255,255,255,0.85)',fontSize:10,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'inherit',lineHeight:1.2,textAlign:'center'}}>
-                Datei
+                style={{width:56,height:56,borderRadius:'50%',border:'2px solid rgba(255,255,255,0.45)',background:'rgba(0,0,0,0.4)',color:'rgba(255,255,255,0.85)',fontSize:22,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'inherit'}}>
+                📄
               </button>
             </div>
           </div>
@@ -1257,7 +1337,7 @@ export default function Home() {
 
         {/* ── DOKUMENT DETAIL MODAL ── */}
         {selectedDoc && (
-          <div className="modal-overlay" onClick={() => { setSelectedDoc(null); setActiveTodoHighlight(null) }}>
+          <div className="modal-overlay" onClick={() => { setSelectedDoc(null); setActiveTodoHighlight(null); setErklaerOpen(false); setErklaerAntwort(null) }}>
             <div className="modal-sheet" onClick={e => e.stopPropagation()}>
               <div className="modal-handle" />
               <div className="modal-header" style={{background:'#1F3A52',borderRadius:'30px 30px 0 0',padding:'18px 20px 16px'}}>
@@ -1266,7 +1346,7 @@ export default function Home() {
                   <div style={{fontSize:12,color:'rgba(251,250,248,0.6)',marginTop:2}}>{selectedDoc.kategorie} · {new Date(selectedDoc.erstellt_am).toLocaleDateString('de-DE')}</div>
                 </div>
                 <button style={{width:32,height:32,borderRadius:'50%',background:'rgba(255,255,255,0.14)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#FBFAF8',fontSize:16,flexShrink:0}}
-                  onClick={() => { setSelectedDoc(null); setActiveTodoHighlight(null) }}>✕</button>
+                  onClick={() => { setSelectedDoc(null); setActiveTodoHighlight(null); setErklaerOpen(false); setErklaerAntwort(null) }}>✕</button>
               </div>
               <div className="modal-body">
                 {/* Dokumentbild mit optionalem Highlight */}
@@ -1305,6 +1385,73 @@ export default function Home() {
                     <p style={{fontSize:14,lineHeight:1.6,color:'#3A362E'}}>{selectedDoc.zusammenfassung}</p>
                   </div>
                 )}
+
+                {/* Erklär mir das */}
+                {selectedDoc.zusammenfassung && (
+                  <div style={{marginBottom:10}}>
+                    {!erklaerOpen ? (
+                      <button onClick={() => { setErklaerOpen(true); setErklaerFrage(null); setErklaerAntwort(null) }}
+                        style={{width:'100%',border:'1.5px solid #F1D0A0',borderRadius:14,padding:'14px 16px',background:'#FBF4E6',cursor:'pointer',display:'flex',alignItems:'center',gap:12,fontFamily:'inherit',textAlign:'left'}}>
+                        <span style={{fontSize:22,flexShrink:0}}>💡</span>
+                        <div>
+                          <div style={{fontSize:14,fontWeight:700,color:'#8A5A12'}}>Was bedeutet das für mich?</div>
+                          <div style={{fontSize:12,color:'#B8924A',marginTop:2}}>Einfach erklären lassen</div>
+                        </div>
+                      </button>
+                    ) : (
+                      <div style={{border:'1.5px solid #F1D0A0',borderRadius:14,padding:14,background:'#FBF4E6'}}>
+                        <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
+                          {[
+                            { key:'was_tun',    label:'Was muss ich tun?' },
+                            { key:'bis_wann',   label:'Bis wann?' },
+                            { key:'nichts_tun', label:'Was passiert, wenn ich nichts tue?' },
+                            { key:'einfach',    label:'Einfach erklären' },
+                          ].map(q => (
+                            <button key={q.key}
+                              onClick={() => erklaerMir(selectedDoc, q.key)}
+                              style={{
+                                border:`1.5px solid ${erklaerFrage===q.key?'#8A5A12':'#F1D0A0'}`,
+                                borderRadius:20,padding:'6px 12px',
+                                background:erklaerFrage===q.key?'#8A5A12':'#fff',
+                                color:erklaerFrage===q.key?'#fff':'#8A5A12',
+                                fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',
+                              }}>
+                              {q.label}
+                            </button>
+                          ))}
+                        </div>
+                        {erklaerLoading && (
+                          <div style={{textAlign:'center',padding:'12px 0',color:'#8A5A12',fontSize:13}}>✨ Einen Moment…</div>
+                        )}
+                        {erklaerAntwort && !erklaerLoading && (
+                          <div style={{background:'#fff',borderRadius:10,padding:'12px 14px',border:'1px solid #F1D0A0'}}>
+                            {erklaerAntwort.startsWith('__err__')
+                              ? <div style={{color:'#B3402C',fontSize:13}}>Fehler: {erklaerAntwort.slice(7)}</div>
+                              : <p style={{fontSize:15,lineHeight:1.7,color:'#3A362E',margin:0,fontWeight:500}}>{erklaerAntwort}</p>
+                            }
+                          </div>
+                        )}
+                        <button onClick={() => { setErklaerOpen(false); setErklaerFrage(null); setErklaerAntwort(null) }}
+                          style={{marginTop:10,fontSize:12,color:'#9A968B',background:'none',border:'none',cursor:'pointer',fontFamily:'inherit',padding:0}}>
+                          Schließen
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Antwort schreiben CTA */}
+                {selectedDoc.todos?.some(t => t.typ === 'antwort') && isOwner && (
+                  <button onClick={() => { setSelectedDoc(null); setErklaerOpen(false); setErklaerAntwort(null); genAntwort(selectedDoc) }}
+                    style={{width:'100%',border:'1.5px solid #BBD0DE',borderRadius:14,padding:'14px 16px',background:'#EAF0F4',cursor:'pointer',display:'flex',alignItems:'center',gap:12,fontFamily:'inherit',textAlign:'left',marginBottom:10}}>
+                    <span style={{fontSize:22,flexShrink:0}}>✉️</span>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:700,color:'#1F3A52'}}>Antwort schreiben</div>
+                      <div style={{fontSize:12,color:'#6B8FAA',marginTop:2}}>Antwortbrief automatisch formulieren</div>
+                    </div>
+                  </button>
+                )}
+
                 {selectedDoc.todos?.length > 0 && (
                   <div className="card" style={{padding:16,marginBottom:10}}>
                     <div className="overline" style={{marginBottom:8}}>Aufgaben</div>
@@ -1357,7 +1504,7 @@ export default function Home() {
                 <div style={{display:'flex',gap:8}}>
                   <button className="btn-secondary" style={{flex:1}} onClick={() => downloadDoc(selectedDoc.storage_path, selectedDoc.dateiname)}>Laden</button>
                   <button className="btn-secondary" style={{flex:1,color:'#1F3A52',borderColor:'#BBD0DE'}}
-                    onClick={() => { setSelectedDoc(null); genAnschreiben(selectedDoc) }}>Anschreiben</button>
+                    onClick={() => { setSelectedDoc(null); setErklaerOpen(false); setErklaerAntwort(null); genAnschreiben(selectedDoc) }}>Formelles Schreiben</button>
                   <button style={{padding:'11px 14px',borderRadius:14,border:'1px solid #F1CFC7',background:'#FBEFEC',color:'#B3402C',cursor:'pointer',display:'flex',alignItems:'center',gap:6,fontFamily:'inherit',fontWeight:600,fontSize:14}}
                     onClick={() => { setSelectedDoc(null); deleteDoc(selectedDoc.id, selectedDoc.storage_path) }}>
                     {Icons.trash}
@@ -1462,15 +1609,15 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Anschreiben button for antwort type */}
+                  {/* Antwort schreiben button for antwort type */}
                   {tdTyp === 'antwort' && (
-                    <button className="btn-secondary btn-full" style={{marginBottom:8}}
+                    <button className="btn-primary btn-full" style={{marginBottom:8}}
                       onClick={() => {
                         const doc = docs.find(d => d.id === selectedTodo.docId)
                         setSelectedTodo(null)
-                        if (doc) genAnschreiben(doc)
+                        if (doc) genAntwort(doc)
                       }}>
-                      ✉️ Anschreiben erstellen
+                      ✉️ Antwort schreiben
                     </button>
                   )}
 
@@ -1488,6 +1635,53 @@ export default function Home() {
             </div>
           )
         })()}
+
+        {/* ── ANTWORT MODAL ── */}
+        {(antwortLoading || antwortText) && (
+          <div className="modal-overlay" onClick={() => { setAntwortText(null); setAntwortDoc(null) }}>
+            <div className="modal-sheet" onClick={e => e.stopPropagation()}>
+              <div className="modal-handle" />
+              <div className="modal-header" style={{background:'#1F3A52',borderRadius:'30px 30px 0 0',padding:'18px 20px 16px'}}>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase',color:'rgba(251,250,248,0.55)',marginBottom:4}}>✉️ Antwortbrief</div>
+                  <div style={{fontSize:15,fontWeight:700,color:'#FBFAF8'}}>{antwortDoc?.absender || antwortDoc?.dateiname || 'Antwort'}</div>
+                </div>
+                <button style={{width:32,height:32,borderRadius:'50%',background:'rgba(255,255,255,0.14)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#FBFAF8',fontSize:16,flexShrink:0}}
+                  onClick={() => { setAntwortText(null); setAntwortDoc(null) }}>✕</button>
+              </div>
+              <div className="modal-body">
+                {antwortLoading && (
+                  <div style={{textAlign:'center',padding:'40px 20px',color:'#9A968B'}}>
+                    <div style={{fontSize:32,marginBottom:12}}>✍️</div>
+                    <div style={{fontSize:14,fontWeight:600}}>Antwortbrief wird formuliert…</div>
+                  </div>
+                )}
+                {antwortText && !antwortLoading && (
+                  <>
+                    {antwortText.startsWith('__err__')
+                      ? <div className="msg msg-err">Fehler: {antwortText.slice(7)}</div>
+                      : (
+                        <div style={{background:'#F4F2EC',borderRadius:12,padding:'16px',marginBottom:14,border:'1px solid #EFEDE6'}}>
+                          <pre style={{fontFamily:'serif',fontSize:14,lineHeight:1.8,color:'#3A362E',whiteSpace:'pre-wrap',margin:0}}>{antwortText}</pre>
+                        </div>
+                      )
+                    }
+                    {!antwortText.startsWith('__err__') && (
+                      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                        <button className="btn-primary btn-full" onClick={mailAntwort}>Per E-Mail senden</button>
+                        <button className="btn-secondary btn-full" onClick={copyAntwort}>Text kopieren</button>
+                        <button className="btn-ghost btn-full" style={{color:'#1F3A52',borderColor:'#BBD0DE'}}
+                          onClick={() => { setAntwortText(null); setAntwortDoc(null); genAnschreiben(antwortDoc) }}>
+                          Formelles Anschreiben stattdessen
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── ANSCHREIBEN MODAL ── */}
         {anschreiben && (
