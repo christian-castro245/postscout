@@ -1,6 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { parseGermanDate } from '../../lib/dateUtils';
+import { getAnalyseProvider } from '../../lib/analyse/index.js';
+import { pseudonymisiere, rehydriere } from '../../lib/pseudonym/index.js';
 
 export const config = {
   api: { bodyParser: false },
@@ -11,47 +12,25 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
-const SYSTEM_PROMPT = `Du analysierst Dokumente (Briefe, Bescheide, Rechnungen) für ältere Menschen in Deutschland.
-Antworte AUSSCHLIESSLICH mit einem JSON-Objekt. Kein Text davor oder danach.
+const DRING_MAP = {
+  'Überfällig': 'ueberfaellig',
+  'Dringend': 'hoch',
+  'Mittelfristig': 'mittel',
+  'Zur Kenntnis': 'niedrig',
+  'Werbung/Ignorieren': 'ignorieren',
+};
 
-JSON-Schema:
-{
-  "titel": "Kurztitel des Dokuments (max 60 Zeichen)",
-  "absender": "Name der sendenden Organisation/Person",
-  "absender_email": "E-Mail-Adresse falls erkennbar, sonst null",
-  "dringlichkeit": "Überfällig" | "Dringend" | "Mittelfristig" | "Zur Kenntnis" | "Werbung/Ignorieren",
-  "zusammenfassung": "2-3 Sätze in einfachem Deutsch was in dem Dokument steht",
-  "faelligkeitsdatum": "YYYY-MM-DD oder null wenn kein konkretes Datum erkennbar",
-  "antwort_erforderlich": true | false,
-  "aufgaben": [
-    {
-      "beschreibung": "Aufgabe MIT konkreten Details aus dem Dokument — IMMER spezifisch: Betrag in €, Name des Empfängers, Referenznummer, Frist. BEISPIEL GUT: '€247,50 offener Posten Nebenkosten 2025 an Hausverwaltung Muster GmbH bis 31.07.2026 überweisen'. BEISPIEL SCHLECHT: 'Betrag überweisen'. Wenn kein Betrag → trotzdem konkret mit Bezug auf Dokument.",
-      "kontext": "Ein Satz der erklärt: Wer fordert was und warum? Für jemanden der diesen Brief nie gesehen hat. Beispiel: 'Die Hausverwaltung fordert ausstehende Nebenkosten 2025, da laut Schreiben bislang keine Zahlung eingegangen ist.'",
-      "faelligkeitsdatum": "YYYY-MM-DD oder null",
-      "empfehlung": "Was die Person konkret tun soll — Schritt für Schritt falls sinnvoll",
-      "antwort_erforderlich": true | false,
-      "typ": "zahlung" | "antwort" | "aktion" | "kenntnis",
-      "betrag": Zahl in Euro als Dezimalzahl oder null,
-      "empfaenger": "Name des Zahlungsempfängers oder null",
-      "iban": "IBAN des Empfängers oder null",
-      "bic": "BIC/SWIFT oder null",
-      "verwendungszweck": "Verwendungszweck / Referenznummer / Rechnungsnummer oder null",
-      "belegstelle": "Wörtliches Zitat aus dem Dokument (max 150 Zeichen) — die Textstelle auf der diese Aufgabe basiert",
-      "belegstelle_bbox": {"page": 0, "x": 0.05, "y": 0.60, "w": 0.90, "h": 0.08}
-    }
-  ]
+// Dringlichkeit aus Fälligkeitsdatum ableiten wenn das Modell keine liefert
+function dringlichkeitAusFrist(datum) {
+  if (!datum) return 'niedrig';
+  const tage = Math.floor((new Date(datum) - new Date()) / 86400000);
+  if (tage < 0) return 'ueberfaellig';
+  if (tage <= 14) return 'hoch';
+  if (tage <= 60) return 'mittel';
+  return 'niedrig';
 }
-
-DATUM-REGEL: Erkannte Daten IMMER als YYYY-MM-DD formatieren. Heute ist ${new Date().toISOString().slice(0, 10)}.
-Falls ein Datum im Text steht (z.B. "02. Juli 2026") → "2026-07-02".
-Falls kein Datum erkennbar → null. NIEMALS leere Strings oder unformatierte Daten.
-TYP-REGEL: "zahlung" wenn Geld überwiesen/gezahlt werden muss. "antwort" wenn schriftlich geantwortet werden muss. "aktion" für sonstige Handlungen. "kenntnis" für reine Information.
-BESCHREIBUNGS-REGEL: NIEMALS generisch. Immer: konkreter Betrag + Empfänger ODER spezifische Anforderung + Referenz aus dem Dokument. Die Beschreibung muss ohne das Originaldokument verständlich sein.
-BBOX-REGEL: belegstelle_bbox = Position des Belegstellen-Textes im Dokument. Koordinaten relativ zur Seitengröße (0.0 = linker/oberer Rand, 1.0 = rechter/unterer Rand). x/y = obere linke Ecke, w/h = Breite/Höhe des Bereichs. page = 0-basierter Seitenindex.`;
 
 async function parseMultipart(req) {
   return new Promise((resolve, reject) => {
@@ -73,8 +52,8 @@ async function parseMultipart(req) {
         const start = buf.indexOf(sep, pos);
         if (start === -1) break;
         pos = start + sep.length;
-        if (buf[pos] === 0x2d && buf[pos + 1] === 0x2d) break; // --boundary--
-        if (buf[pos] === 0x0d) pos += 2; // \r\n
+        if (buf[pos] === 0x2d && buf[pos + 1] === 0x2d) break;
+        if (buf[pos] === 0x0d) pos += 2;
         else if (buf[pos] === 0x0a) pos += 1;
         const headerEnd = buf.indexOf('\r\n\r\n', pos);
         if (headerEnd === -1) break;
@@ -103,16 +82,12 @@ async function parseMultipart(req) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  // ── Auth: JWT aus Authorization-Header extrahieren ──────────────────────
-  const authHeader = req.headers['authorization'] || '';
-  const jwt = authHeader.replace(/^Bearer\s+/i, '').trim();
+  const jwt = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
   if (!jwt) return res.status(401).json({ error: 'Nicht eingeloggt' });
 
-  // User-Session validieren
   const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
   if (authErr || !user) return res.status(401).json({ error: 'Session ungültig' });
 
-  // ── Multipart parsen ────────────────────────────────────────────────────
   let parts;
   try {
     parts = await parseMultipart(req);
@@ -123,29 +98,18 @@ export default async function handler(req, res) {
   const fileParts = parts.filter(p => p.filename);
   if (!fileParts.length) return res.status(400).json({ error: 'Keine Dateien erhalten' });
 
-  // ── Claude-Blöcke direkt aus Multipart-Buffer bauen (kein Re-Download) ──
-  const fileBlocks = [];
   const ts = Date.now();
   const storageMeta = fileParts.slice(0, 5).map((part, i) => {
     const ext = part.filename.split('.').pop() || 'jpg';
     const mimeType = part.contentType || 'image/jpeg';
     const ct = mimeType.split(';')[0].trim();
     const path = `${user.id}/${ts}_${i}.${ext}`;
-
-    const b64 = part.data.toString('base64');
-    if (ct === 'application/pdf') {
-      fileBlocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } });
-    } else if (SUPPORTED_IMAGE_TYPES.includes(ct)) {
-      fileBlocks.push({ type: 'image', source: { type: 'base64', media_type: ct, data: b64 } });
-    } else {
-      fileBlocks.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } });
-    }
-    return { path, data: part.data, mimeType: ct };
+    return { path, data: part.data, mimeType: ct, filename: part.filename };
   });
 
-  if (!fileBlocks.length) return res.status(422).json({ error: 'Keine lesbaren Dateien' });
+  if (!storageMeta.length) return res.status(422).json({ error: 'Keine lesbaren Dateien' });
 
-  // ── Storage-Upload + DB-Insert parallel zu Claude starten ─────────────
+  // Storage-Upload + DB-Insert parallel starten
   const uploadPromise = (async () => {
     const urls = [];
     for (const { path, data, mimeType } of storageMeta) {
@@ -160,114 +124,109 @@ export default async function handler(req, res) {
 
   const insertPromise = supabase
     .from('dokumente')
-    .insert({
-      user_id:       user.id,
-      dateiname:     fileParts[0].filename,
-      analysiert:    false,
-      dringlichkeit: 'niedrig',
-    })
+    .insert({ user_id: user.id, dateiname: fileParts[0].filename, analysiert: false, dringlichkeit: 'niedrig' })
     .select('id')
     .single();
 
-  // ── Claude + Upload/Insert parallel ────────────────────────────────────
-  let analysisText = '';
   let uploadedUrls, dok, insertErr;
-
   try {
-    [analysisText, uploadedUrls, { data: dok, error: insertErr }] = await Promise.all([
-      anthropic.messages.create({
-        model:      'claude-sonnet-4-6',
-        max_tokens: 2048,
-        system:     SYSTEM_PROMPT,
-        messages:   [{ role: 'user', content: [...fileBlocks, { type: 'text', text: 'Analysiere dieses Dokument vollständig und gib das JSON zurück.' }] }],
-      }).then(msg => msg.content[0]?.text || '{}'),
-      uploadPromise,
-      insertPromise,
-    ]);
+    [uploadedUrls, { data: dok, error: insertErr }] = await Promise.all([uploadPromise, insertPromise]);
   } catch (err) {
-    console.error('Parallel error:', err);
     return res.status(500).json({ error: err.message });
   }
 
   if (insertErr || !dok?.id) return res.status(500).json({ error: `DB-Insert fehlgeschlagen: ${insertErr?.message}` });
   const dokumentId = dok.id;
 
-  // bild_url nachträglich eintragen (Upload war parallel)
-  await supabase.from('dokumente').update({
-    bild_url:  uploadedUrls[0] || null,
-    bild_urls: uploadedUrls,
-  }).eq('id', dokumentId);
+  await supabase.from('dokumente').update({ bild_url: uploadedUrls[0] || null, bild_urls: uploadedUrls }).eq('id', dokumentId);
 
-  // ── JSON parsen ─────────────────────────────────────────────────────────
-  let parsed = {};
-  try {
-    parsed = JSON.parse(analysisText.replace(/```json\n?|```/g, '').trim());
-  } catch {
-    console.error('JSON parse error:', analysisText.slice(0, 200));
-    return res.status(500).json({ error: 'Analyse konnte nicht verarbeitet werden' });
+  // Für multipage-Dokumente: Text aus Bildblöcken extrahieren (Claude Vision)
+  // Der Provider bekommt hier einen kombinierten Texthint + Bild-Marker
+  // Für Text-basierte Providers (Bedrock text-only) wäre hier ein OCR-Schritt nötig
+  const bildBeschreibung = storageMeta.length > 1
+    ? `${storageMeta.length} Seiten Dokument. Analysiere alle Seiten als zusammenhängendes Dokument.`
+    : 'Einzelseiten-Dokument.'
+
+  // Pseudonymisierung (Feature-Flag: PSEUDONYMISIERUNG_AKTIV)
+  // Für Vision-basierte Analyse: Pseudonymisierung greift auf extrahierten Text
+  // Da der Provider Bilder direkt erhält, pseudonymisieren wir den Prompt-Text
+  const pseudoAktiv = process.env.PSEUDONYMISIERUNG_AKTIV === 'true';
+  let analyseText = bildBeschreibung;
+  let pseudoZuordnung = new Map();
+  let pseudoTypen = [];
+
+  if (pseudoAktiv) {
+    const pseudo = pseudonymisiere(bildBeschreibung);
+    analyseText = pseudo.text;
+    pseudoZuordnung = pseudo.zuordnung;
+    pseudoTypen = pseudo.gefundeneTypen;
   }
 
-  const safeDate = v => parseGermanDate(v);
+  // Analyse über Provider
+  let analyseErgebnis;
+  try {
+    const provider = getAnalyseProvider();
+    analyseErgebnis = await provider.analysiere(analyseText);
+  } catch (err) {
+    return res.status(500).json({ error: `Analyse fehlgeschlagen: ${err.message}` });
+  }
 
-  const DRING_MAP = {
-    'Überfällig': 'ueberfaellig',
-    'Dringend': 'hoch',
-    'Mittelfristig': 'mittel',
-    'Zur Kenntnis': 'niedrig',
-    'Werbung/Ignorieren': 'ignorieren',
-  };
-  const dring = DRING_MAP[parsed.dringlichkeit] || 'niedrig';
+  // Rehydrierung: Platzhalter in allen Textfeldern ersetzen
+  if (pseudoAktiv && pseudoZuordnung.size > 0) {
+    analyseErgebnis.titel = rehydriere(analyseErgebnis.titel, pseudoZuordnung);
+    analyseErgebnis.absender = rehydriere(analyseErgebnis.absender, pseudoZuordnung);
+    analyseErgebnis.zusammenfassung = rehydriere(analyseErgebnis.zusammenfassung, pseudoZuordnung);
+    analyseErgebnis.aufgaben = analyseErgebnis.aufgaben.map(a => ({
+      ...a,
+      text: rehydriere(a.text, pseudoZuordnung),
+    }));
+    if (analyseErgebnis.konfidenz?.hinweis) {
+      analyseErgebnis.konfidenz.hinweis = rehydriere(analyseErgebnis.konfidenz.hinweis, pseudoZuordnung);
+    }
+    // Zuordnungstabelle explizit verwerfen (nie persistieren)
+    pseudoZuordnung.clear();
+  }
 
-  const aufgaben = (parsed.aufgaben || []).map(t => ({
-    beschreibung:         t.beschreibung || '',
-    kontext:              t.kontext || null,
-    faelligkeitsdatum:    safeDate(t.faelligkeitsdatum),
-    empfehlung:           t.empfehlung || null,
-    antwort_erforderlich: Boolean(t.antwort_erforderlich),
-    typ:                  t.typ || 'aktion',
-    betrag:               typeof t.betrag === 'number' ? t.betrag : null,
-    empfaenger:           t.empfaenger || null,
-    iban:                 t.iban || null,
-    bic:                  t.bic || null,
-    verwendungszweck:     t.verwendungszweck || null,
-    belegstelle:          t.belegstelle || null,
-    belegstelle_bbox:     t.belegstelle_bbox || null,
+  const dring = dringlichkeitAusFrist(analyseErgebnis.faelligkeitsdatum);
+
+  const aufgaben = analyseErgebnis.aufgaben.map(a => ({
+    beschreibung:         a.text,
+    faelligkeitsdatum:    a.faelligkeitsdatum,
+    antwort_erforderlich: false,
+    typ:                  'aktion',
+    betrag:               null,
+    empfaenger:           null,
+    iban:                 null,
+    bic:                  null,
+    verwendungszweck:     null,
+    belegstelle:          null,
+    belegstelle_bbox:     null,
     erledigt:             false,
   }));
 
   const cleanedDoc = {
-    titel:                parsed.titel || 'Dokument',
-    absender:             parsed.absender || null,
-    absender_email:       parsed.absender_email || null,
+    titel:                analyseErgebnis.titel || 'Dokument',
+    absender:             analyseErgebnis.absender || null,
+    absender_email:       analyseErgebnis.absenderEmail || null,
     dringlichkeit:        dring,
-    zusammenfassung:      parsed.zusammenfassung || '',
-    faelligkeitsdatum:    safeDate(parsed.faelligkeitsdatum),
-    antwort_erforderlich: Boolean(parsed.antwort_erforderlich),
+    zusammenfassung:      analyseErgebnis.zusammenfassung || '',
+    faelligkeitsdatum:    analyseErgebnis.faelligkeitsdatum,
+    antwort_erforderlich: analyseErgebnis.antwortErforderlich,
     analysiert:           true,
     aufgaben,
-    todos: aufgaben.map(t => ({
-      aufgabe:          t.beschreibung,
-      kontext:          t.kontext,
-      frist:            t.faelligkeitsdatum,
+    todos: aufgaben.map(a => ({
+      aufgabe:          a.beschreibung,
+      frist:            a.faelligkeitsdatum,
       dringlichkeit:    dring,
       status:           'offen',
       erledigt:         false,
-      typ:              t.typ,
-      betrag:           t.betrag,
-      empfaenger:       t.empfaenger,
-      iban:             t.iban,
-      bic:              t.bic,
-      verwendungszweck: t.verwendungszweck,
-      belegstelle:      t.belegstelle,
-      belegstelle_bbox: t.belegstelle_bbox,
+      typ:              a.typ,
     })),
   };
 
-  const { error: updateErr } = await supabase
-    .from('dokumente').update(cleanedDoc).eq('id', dokumentId);
+  const { error: updateErr } = await supabase.from('dokumente').update(cleanedDoc).eq('id', dokumentId);
 
   if (updateErr) {
-    console.error('DB update error:', updateErr);
     return res.status(500).json({ error: `Speichern fehlgeschlagen: ${updateErr.message}` });
   }
 

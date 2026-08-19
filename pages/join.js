@@ -104,7 +104,7 @@ export default function Join() {
   return (
     <>
       <Head>
-        <title>Einladung annehmen – PostScout</title>
+        <title>Einladung annehmen – Postklar</title>
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
         <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
       </Head>
@@ -112,7 +112,7 @@ export default function Join() {
       <div style={S.wrap}>
         <div style={S.header}>
           <div style={S.logo}>📬</div>
-          <div style={S.title}>PostScout</div>
+          <div style={S.title}>Postklar</div>
           <div style={S.sub}>Einladung annehmen</div>
         </div>
 
@@ -153,7 +153,7 @@ export default function Join() {
             <div>
               <div style={{ ...S.card, background: '#EAF0F4', border: '1px solid #BBD0DE' }}>
                 <div style={{ fontSize: 14, color: '#1F3A52', lineHeight: 1.6 }}>
-                  Du wurdest zu PostScout eingeladen. Melde dich an oder erstelle ein Konto, um die Aufgaben deiner Familie zu sehen.
+                  Du wurdest zu Postklar eingeladen. Melde dich an oder erstelle ein Konto, um die Aufgaben deiner Familie zu sehen.
                 </div>
               </div>
 

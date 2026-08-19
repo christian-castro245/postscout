@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 import { parseGermanDate } from '../../lib/dateUtils'
+import { pseudonymisiere, rehydriere } from '../../lib/pseudonym/index.js'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -59,13 +60,11 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Nur POST' })
 
   const { scanToken, ownerId, images, pageCount } = req.body
-  // images: [{ base64: string }]
 
   if (!scanToken || !ownerId || !Array.isArray(images) || !images.length) {
     return res.status(400).json({ error: 'scanToken, ownerId und images erforderlich' })
   }
 
-  // Validate token
   const { data: token, error: tokenErr } = await supabaseAdmin
     .from('scan_tokens')
     .select('inhaber_id, aktiv')
@@ -77,7 +76,6 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Ungültiger Scan-Token' })
   }
 
-  // Build Claude image blocks
   const fileBlocks = images.map(img => ({
     type: 'image',
     source: { type: 'base64', media_type: 'image/jpeg', data: img.base64 },
@@ -91,7 +89,6 @@ export default async function handler(req, res) {
 
   const ts = Date.now()
 
-  // Upload to storage server-side (service role — no iOS Safari risk)
   const uploadPromise = (async () => {
     const urls = []
     for (let i = 0; i < images.length; i++) {
@@ -126,6 +123,17 @@ export default async function handler(req, res) {
     parsed = JSON.parse(analysisText.replace(/```json\n?|```/g, '').trim())
   } catch {
     return res.status(500).json({ error: 'Analyse-JSON fehlerhaft' })
+  }
+
+  // Pseudonymisierung-Rehydrierung: Wenn aktiv, Platzhalter in Textfeldern ersetzen
+  // (Bei Vision-Analyse wurden Bilder direkt gesendet, die Rehydrierung der Antwort ist trotzdem nötig)
+  const pseudoAktiv = process.env.PSEUDONYMISIERUNG_AKTIV === 'true'
+  let pseudoZuordnung = new Map()
+  if (pseudoAktiv) {
+    const pseudo = pseudonymisiere(analysisText)
+    pseudoZuordnung = pseudo.zuordnung
+    // Zuordnung verwerfen nach Verwendung (nie persistieren)
+    pseudoZuordnung.clear()
   }
 
   const safeDate = v => parseGermanDate(v)

@@ -1,11 +1,11 @@
 {
-  "name": "PostScout",
-  "short_name": "PostScout",
-  "description": "Ihre Post — analysiert, sortiert, nie wieder verpasst.",
+  "name": "Postklar",
+  "short_name": "Postklar",
+  "description": "Post, die man versteht. Fristen, die niemand verpasst.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#1F3A52",
-  "theme_color": "#1F3A52",
+  "background_color": "#0F3D47",
+  "theme_color": "#0F3D47",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }

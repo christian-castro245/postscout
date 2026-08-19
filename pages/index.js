@@ -662,7 +662,7 @@ export default function Home() {
     const rows=filtered.map(d=>[new Date(d.erstellt_am).toLocaleDateString('de-DE'),d.absender||'',d.kategorie,d.steuerrelevant?'Ja':'Nein',d.betrag!=null?Number(d.betrag).toFixed(2):'','"'+(d.zusammenfassung||'').replace(/"/g,"''")+'"',d.frist?new Date(d.frist).toLocaleDateString('de-DE'):'',d.dateiname||''])
     const csv=[header,...rows].map(r=>r.join(';')).join('\n')
     const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'})
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`postscout_${nurSteuer?'steuer':'alle'}_${jahr}.csv`; a.click()
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`postklar_${nurSteuer?'steuer':'alle'}_${jahr}.csv`; a.click()
     setExportMsg({ text:`${filtered.length} Dokumente exportiert`, err:false }); setTimeout(()=>setExportMsg(null),3000)
   }
   function exportPDF() {
@@ -672,7 +672,7 @@ export default function Home() {
     const { jsPDF }=window.jspdf
     const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'}); const W=210,pad=18; let y=pad
     doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.setTextColor(31,58,82)
-    doc.text('PostScout — Steuerübersicht '+jahr,pad,y); y+=8
+    doc.text('Postklar — Steuerübersicht '+jahr,pad,y); y+=8
     doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(124,120,110)
     doc.text(`${new Date().toLocaleDateString('de-DE')} · ${filtered.length} Dok.`,pad,y); y+=9
     doc.setDrawColor(224,221,211); doc.setLineWidth(0.3); doc.line(pad,y,W-pad,y); y+=7
@@ -691,7 +691,7 @@ export default function Home() {
       if(d.frist){doc.setTextColor(180,100,0);doc.text('Frist: '+new Date(d.frist).toLocaleDateString('de-DE'),pad+3,y);y+=5}
       y+=4; doc.setDrawColor(239,237,230); doc.line(pad,y,W-pad,y); y+=6
     })
-    doc.save('postscout_steuer_'+jahr+'.pdf')
+    doc.save('postklar_steuer_'+jahr+'.pdf')
     setExportMsg({ text:`PDF mit ${filtered.length} Dok.`, err:false }); setTimeout(()=>setExportMsg(null),3000)
   }
 
@@ -703,7 +703,7 @@ export default function Home() {
       (doc.todos || []).forEach(t => {
         if (!t.frist) return
         const dt = t.frist.replace(/-/g,'')
-        const uid = `${doc.id}-${dt}-${Math.random().toString(36).slice(2)}@postscout.app`
+        const uid = `${doc.id}-${dt}-${Math.random().toString(36).slice(2)}@postklar.app`
         const summary = (t.aufgabe || 'Aufgabe').replace(/\n/g,' ')
         const desc = `${doc.absender || doc.dateiname || ''}${t.kontext ? ' — ' + t.kontext : ''}`.replace(/\n/g,' ')
         events.push([
@@ -713,16 +713,16 @@ export default function Home() {
           `DTEND;VALUE=DATE:${dt}`,
           `SUMMARY:${summary}`,
           desc ? `DESCRIPTION:${desc}` : '',
-          `CATEGORIES:${doc.kategorie || 'PostScout'}`,
+          `CATEGORIES:${doc.kategorie || 'Postklar'}`,
           'END:VEVENT',
         ].filter(Boolean).join('\r\n'))
       })
     })
     if (!events.length) { setExportMsg({ text:'Keine Todos mit Frist gefunden', err:true }); return }
-    const ics = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//PostScout//DE',...events,'END:VCALENDAR'].join('\r\n')
+    const ics = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Postklar//DE',...events,'END:VCALENDAR'].join('\r\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([ics], { type:'text/calendar;charset=utf-8' }))
-    a.download = 'postscout-fristen.ics'; a.click()
+    a.download = 'postklar-fristen.ics'; a.click()
     setExportMsg({ text:`${events.length} Fristen exportiert`, err:false }); setTimeout(()=>setExportMsg(null),3000)
   }
 
@@ -822,7 +822,7 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>PostScout</title>
+        <title>Postklar</title>
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </Head>
       <Script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" strategy="lazyOnload" />
@@ -872,7 +872,7 @@ export default function Home() {
               <rect x="2" y="4" width="20" height="16" rx="3"/>
               <path d="m2 7 9.1 5.7a1.8 1.8 0 0 0 1.8 0L22 7"/>
             </svg>
-            <span className="top-logo-text">PostScout</span>
+            <span className="top-logo-text">Postklar</span>
           </button>
           {session ? (
             <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -899,8 +899,8 @@ export default function Home() {
                   <rect x="2" y="4" width="20" height="16" rx="3"/>
                   <path d="m2 7 9.1 5.7a1.8 1.8 0 0 0 1.8 0L22 7"/>
                 </svg>
-                <h1 className="auth-title">PostScout</h1>
-                <p className="auth-sub">Ihre Post — analysiert,<br/>sortiert, nie wieder verpasst.</p>
+                <h1 className="auth-title">Postklar</h1>
+                <p className="auth-sub">Post, die man versteht.<br/>Fristen, die niemand verpasst.</p>
               </div>
               <div className="auth-sheet">
                 <div className="field-wrap">
@@ -987,8 +987,8 @@ export default function Home() {
               {allTodos.length === 0 && docs.length === 0 && isOwner && (
                 <div style={{border:'1.5px dashed #BBD0DE',borderRadius:16,padding:'20px 18px',marginBottom:16,textAlign:'center',background:'#F7FAFC'}}>
                   <div style={{fontSize:28,marginBottom:10}}>📬</div>
-                  <div style={{fontSize:15,fontWeight:700,color:'#1F3A52',marginBottom:6}}>Noch keine Briefe</div>
-                  <div style={{fontSize:13,color:'#7C786E',lineHeight:1.5,marginBottom:16}}>Scanne deinen ersten Brief — oder sieh dir einen Demo-Brief an, um zu verstehen, was PostScout kann.</div>
+                  <div style={{fontSize:15,fontWeight:700,color:'#0F3D47',marginBottom:6}}>Noch keine Briefe</div>
+                  <div style={{fontSize:14,color:'#5A7078',lineHeight:1.6,marginBottom:16}}>Scannen Sie Ihren ersten Brief — oder sehen Sie sich einen Demo-Brief an, um zu verstehen, was Postklar kann.</div>
                   <button onClick={() => setSelectedDoc(DEMO_DOK)}
                     style={{padding:'9px 18px',borderRadius:12,border:'1.5px solid #BBD0DE',background:'#EAF0F4',color:'#1F3A52',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>
                     Demo-Brief ansehen
@@ -2049,7 +2049,7 @@ export default function Home() {
                 {isOwner && (
                   <div style={{margin:'8px 16px 0',padding:'12px 14px',background:'var(--ps-petrol-tint)',border:'1px solid var(--ps-petrol-tint-bd)',borderRadius:14}}>
                     <div className="overline" style={{marginBottom:5,color:'var(--ps-faint)'}}>Per E-Mail weiterleiten</div>
-                    <div style={{fontSize:12,fontFamily:'monospace',color:'var(--ps-petrol)',fontWeight:600,wordBreak:'break-all'}}>briefe+{session.user.id.slice(0,8)}@postscout.app</div>
+                    <div style={{fontSize:12,fontFamily:'monospace',color:'var(--ps-petrol)',fontWeight:600,wordBreak:'break-all'}}>briefe+{session.user.id.slice(0,8)}@postklar.app</div>
                   </div>
                 )}
               </div>
@@ -2080,21 +2080,24 @@ export default function Home() {
       </div>
 
       <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;0,7..72,700;1,7..72,400&family=Inter:wght@400;500;600;700;800&display=swap');
 
         :root {
-          --ps-petrol:#1F3A52; --ps-petrol-pressed:#16304A;
-          --ps-petrol-tint:#EAF0F4; --ps-petrol-tint-bd:#BBD0DE;
-          --ps-bg:#FBFAF8; --ps-surface:#FFFFFF; --ps-subtle:#F4F2EC;
-          --ps-ink:#1A1712; --ps-muted:#7C786E; --ps-faint:#9A968B;
+          --ps-petrol:#0F3D47; --ps-petrol-pressed:#0A2E37;
+          --ps-petrol-tint:#E2EEF1; --ps-petrol-tint-bd:#B5D4DC;
+          --ps-bg:#FBF8F3; --ps-surface:#FFFFFF; --ps-subtle:#F5F2EC;
+          --ps-ink:#1A1712; --ps-muted:#5A7078; --ps-faint:#8A9BA1;
           --ps-border:#E0DDD3; --ps-hairline:#EFEDE6;
           --ps-signal:#F97316;
           --ps-overdue:#B3402C; --ps-overdue-bg:#FBEAE7;
           --ps-urgent:#C2410C; --ps-urgent-bg:#FBF0E8;
           --ps-medium:#8A5A12; --ps-medium-bg:#FBF4E6;
-          --ps-done:#2E7D46; --ps-done-bg:#E9F0E9;
-          --ps-inprogress:#1F3A52; --ps-inprogress-bg:#EAF0F4;
-          --ps-font:"Figtree",system-ui,-apple-system,sans-serif;
+          --ps-done:#2E7D63; --ps-done-bg:#E6F0EC;
+          --ps-inprogress:#0F3D47; --ps-inprogress-bg:#E2EEF1;
+          --ps-signal:#E8973C;
+          --ps-urgent:#C4462F; --ps-urgent-bg:#FBEAE7;
+          --ps-font:"Inter",system-ui,-apple-system,sans-serif;
+          --ps-font-heading:"Literata",Georgia,serif;
         }
         *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
         body { font-family:var(--ps-font); background:#EDEBE4; color:var(--ps-ink); -webkit-font-smoothing:antialiased; min-height:100vh; }
@@ -2123,7 +2126,7 @@ export default function Home() {
 
         /* Auth */
         .auth-hero { background:var(--ps-petrol); padding:64px 28px 48px; text-align:center; }
-        .auth-title { font-size:32px; font-weight:700; color:#fff; margin-bottom:10px; letter-spacing:-0.025em; }
+        .auth-title { font-size:32px; font-weight:700; color:#fff; margin-bottom:10px; letter-spacing:-0.025em; font-family:var(--ps-font-heading); }
         .auth-sub { font-size:16px; color:rgba(255,255,255,0.62); line-height:1.5; }
         .auth-sheet { background:var(--ps-surface); border-radius:16px; padding:20px; margin:20px 0; border:1px solid var(--ps-hairline); }
         .auth-toggle { font-size:13px; color:var(--ps-faint); margin-top:14px; text-align:center; }

@@ -601,7 +601,7 @@ export default function Aufgaben() {
   return (
     <>
       <Head>
-        <title>Aufgaben – PostScout</title>
+        <title>Aufgaben – Postklar</title>
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </Head>
       <div style={{
@@ -616,7 +616,7 @@ export default function Aufgaben() {
           paddingTop:'calc(12px + env(safe-area-inset-top))',
           display:'flex',alignItems:'center',justifyContent:'space-between',
         }}>
-          <span style={{fontWeight:700,color:'#fff',fontSize:18,letterSpacing:'-0.02em'}}>PostScout</span>
+          <span style={{fontWeight:700,color:'#fff',fontSize:18,letterSpacing:'-0.02em'}}>Postklar</span>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             {urgentCount > 0 && (
               <span style={{

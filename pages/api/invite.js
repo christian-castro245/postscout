@@ -29,17 +29,17 @@ export default async function handler(req, res) {
         'Authorization': `Bearer ${resendKey}`,
       },
       body: JSON.stringify({
-        from: 'PostScout <noreply@postscout.app>',
+        from: 'Postklar <noreply@postklar.app>',
         to: [inviteeEmail],
-        subject: `${ownerName || 'Jemand'} hat dich zu PostScout eingeladen`,
+        subject: `${ownerName || 'Jemand'} hat dich zu Postklar eingeladen`,
         html: `
           <div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#f5f4f0">
             <div style="background:#fff;border-radius:16px;padding:32px;border:1px solid #e2e0d8">
               <div style="width:44px;height:44px;background:#2563eb;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:20px">✉</div>
-              <h1 style="font-size:20px;font-weight:600;margin:0 0 8px;color:#1a1916">Einladung zu PostScout</h1>
+              <h1 style="font-size:20px;font-weight:600;margin:0 0 8px;color:#1a1916">Einladung zu Postklar</h1>
               <p style="font-size:14px;color:#5a5850;line-height:1.6;margin:0 0 16px">
                 <strong style="color:#1a1916">${ownerName || 'Eine Person'}</strong> hat dich eingeladen, 
-                ihre Post-Aufgaben in PostScout zu verfolgen.<br><br>
+                ihre Post-Aufgaben in Postklar zu verfolgen.<br><br>
                 Deine Berechtigung: <strong style="color:#1a1916">${permLabel}</strong>
               </p>
               <a href="${inviteUrl}" style="display:block;text-align:center;background:#2563eb;color:#fff;padding:14px;border-radius:10px;text-decoration:none;font-size:15px;font-weight:500;margin:24px 0">
