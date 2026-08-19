@@ -43,6 +43,27 @@ const FREQ_OPTS = [
 
 function randomToken() { return Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2) }
 
+const DEMO_DOK = {
+  id: '__demo__',
+  absender: 'ARD ZDF Deutschlandradio Beitragsservice',
+  kategorie: 'Behörde / Ämter',
+  dringlichkeit: 'mittel',
+  zusammenfassung: 'Ihr Rundfunkbeitrag für das 1. Quartal 2026 in Höhe von 57,60 € ist fällig. Bitte überweisen Sie den Betrag bis zum 15. Februar 2026 an den Beitragsservice. Ihr Beitragskonto: 123 456 789.',
+  erstellt_am: new Date().toISOString(),
+  frist: '2026-02-15',
+  betrag: 57.60,
+  steuerrelevant: false,
+  dateiname: 'demo-beitragsservice.jpg',
+  bild_url: null,
+  bild_urls: null,
+  storage_path: null,
+  notizen: [],
+  todos: [
+    { aufgabe: '57,60 € überweisen', typ: 'zahlung', status: 'offen', dringlichkeit: 'mittel', frist: '2026-02-15', betrag: 57.60, empfaenger: 'ARD ZDF Deutschlandradio', iban: 'DE74370501980000090909', bic: 'COLSDE33', verwendungszweck: 'Beitragskonto 123 456 789', kontext: 'Quartalsrechnung für den Rundfunkbeitrag' },
+  ],
+  __demo: true,
+}
+
 // ── SVG Icons (Lucide-Stil, strokeWidth 1.6, round) ──────────────────────────
 const Icon = ({ d, size=22, sw=1.6, color='currentColor', children, viewBox='0 0 24 24' }) => (
   <svg width={size} height={size} viewBox={viewBox} fill="none" stroke={color}
@@ -134,6 +155,13 @@ export default function Home() {
   const [antwortDoc, setAntwortDoc]     = useState(null)
   const [antwortText, setAntwortText]   = useState(null)
   const [antwortLoading, setAntwortLoading] = useState(false)
+  const [docEditMode, setDocEditMode]       = useState(false)
+  const [docEditAbsender, setDocEditAbsender] = useState('')
+  const [docEditKategorie, setDocEditKategorie] = useState('')
+  const [docEditDring, setDocEditDring]     = useState('')
+  const [docEditFrist, setDocEditFrist]     = useState('')
+  const [docEditSaving, setDocEditSaving]   = useState(false)
+  const [korrespondenzFilter, setKorrespondenzFilter] = useState(null)
   const fileRef          = useRef()
   const galleryRef       = useRef()
   const videoRef         = useRef()
@@ -661,6 +689,63 @@ export default function Home() {
     setExportMsg({ text:`PDF mit ${filtered.length} Dok.`, err:false }); setTimeout(()=>setExportMsg(null),3000)
   }
 
+  // ── ICS Export ────────────────────────────────────────────────────────────
+  function exportICS(targetDocs) {
+    const sourceDocs = targetDocs || docs
+    const events = []
+    sourceDocs.forEach(doc => {
+      (doc.todos || []).forEach(t => {
+        if (!t.frist) return
+        const dt = t.frist.replace(/-/g,'')
+        const uid = `${doc.id}-${dt}-${Math.random().toString(36).slice(2)}@postscout.app`
+        const summary = (t.aufgabe || 'Aufgabe').replace(/\n/g,' ')
+        const desc = `${doc.absender || doc.dateiname || ''}${t.kontext ? ' — ' + t.kontext : ''}`.replace(/\n/g,' ')
+        events.push([
+          'BEGIN:VEVENT',
+          `UID:${uid}`,
+          `DTSTART;VALUE=DATE:${dt}`,
+          `DTEND;VALUE=DATE:${dt}`,
+          `SUMMARY:${summary}`,
+          desc ? `DESCRIPTION:${desc}` : '',
+          `CATEGORIES:${doc.kategorie || 'PostScout'}`,
+          'END:VEVENT',
+        ].filter(Boolean).join('\r\n'))
+      })
+    })
+    if (!events.length) { setExportMsg({ text:'Keine Todos mit Frist gefunden', err:true }); return }
+    const ics = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//PostScout//DE',...events,'END:VCALENDAR'].join('\r\n')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([ics], { type:'text/calendar;charset=utf-8' }))
+    a.download = 'postscout-fristen.ics'; a.click()
+    setExportMsg({ text:`${events.length} Fristen exportiert`, err:false }); setTimeout(()=>setExportMsg(null),3000)
+  }
+
+  // ── Doc Edit ──────────────────────────────────────────────────────────────
+  function openDocEdit(doc) {
+    setDocEditAbsender(doc.absender || '')
+    setDocEditKategorie(doc.kategorie || 'Sonstiges')
+    setDocEditDring(doc.dringlichkeit || 'niedrig')
+    setDocEditFrist(doc.frist || '')
+    setDocEditMode(true)
+  }
+  async function saveDocEdit(doc) {
+    setDocEditSaving(true)
+    const updates = {
+      absender: docEditAbsender.trim() || null,
+      kategorie: docEditKategorie,
+      dringlichkeit: docEditDring,
+      frist: docEditFrist || null,
+    }
+    const { error } = await supabase.from('dokumente').update(updates).eq('id', doc.id)
+    if (!error) {
+      const updated = { ...doc, ...updates }
+      setDocs(prev => prev.map(d => d.id === doc.id ? updated : d))
+      setSelectedDoc(updated)
+      buildTodoList(docs.map(d => d.id === doc.id ? updated : d))
+    }
+    setDocEditMode(false); setDocEditSaving(false)
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────
   const filteredDocs=docFilter==='Alle'?docs:docs.filter(d=>d.kategorie===docFilter)
   const jahre=[...new Set(docs.map(d=>d.jahr||new Date().getFullYear()))].sort((a,b)=>b-a)
@@ -850,13 +935,24 @@ export default function Home() {
                 </div>
               )}
 
-              {allTodos.length === 0 ? (
+              {allTodos.length === 0 && docs.length === 0 && isOwner && (
+                <div style={{border:'1.5px dashed #BBD0DE',borderRadius:16,padding:'20px 18px',marginBottom:16,textAlign:'center',background:'#F7FAFC'}}>
+                  <div style={{fontSize:28,marginBottom:10}}>📬</div>
+                  <div style={{fontSize:15,fontWeight:700,color:'#1F3A52',marginBottom:6}}>Noch keine Briefe</div>
+                  <div style={{fontSize:13,color:'#7C786E',lineHeight:1.5,marginBottom:16}}>Scanne deinen ersten Brief — oder sieh dir einen Demo-Brief an, um zu verstehen, was PostScout kann.</div>
+                  <button onClick={() => setSelectedDoc(DEMO_DOK)}
+                    style={{padding:'9px 18px',borderRadius:12,border:'1.5px solid #BBD0DE',background:'#EAF0F4',color:'#1F3A52',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>
+                    Demo-Brief ansehen
+                  </button>
+                </div>
+              )}
+              {allTodos.length === 0 && docs.length > 0 ? (
                 <div className="empty-state">
                   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#C8C4B8" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>
                   <p>Alle Aufgaben erledigt</p>
                   {isOwner && <button className="btn-ghost" onClick={() => setView('scan')}>Brief scannen</button>}
                 </div>
-              ) : (
+              ) : allTodos.length > 0 ? (
                 <>
                   <div className="todos-bar">
                     <span className="todos-count">{openTodos} offen</span>
@@ -914,7 +1010,7 @@ export default function Home() {
                     )
                   })}
                 </>
-              )}
+              ) : null}
             </div>
           )}
 
@@ -1250,7 +1346,82 @@ export default function Home() {
                     </div>
                   </div>
 
+                  <div className="card" style={{padding:16,marginBottom:10}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+                      <div style={{width:36,height:36,borderRadius:11,background:'#FBF0E8',display:'flex',alignItems:'center',justifyContent:'center',color:'#C2410C',flexShrink:0,fontSize:18}}>📅</div>
+                      <div className="card-title">Kalender-Export (ICS)</div>
+                    </div>
+                    <div className="caption" style={{marginBottom:12}}>Alle Fristen als Kalendereinträge — Apple Kalender, Google, Outlook.</div>
+                    <button className="btn-secondary" style={{display:'flex',alignItems:'center',gap:7}} onClick={() => exportICS()}>
+                      📅 Fristen exportieren
+                    </button>
+                  </div>
+
                   {exportMsg && <div className={`msg ${exportMsg.err ? 'msg-err' : 'msg-ok'}`}>{exportMsg.text}</div>}
+                </div>
+              )}
+
+              {/* KORRESPONDENZ */}
+              {view === 'korrespondenz' && isOwner && (
+                <div>
+                  {!korrespondenzFilter ? (
+                    <>
+                      <div className="overline" style={{padding:'0 4px',marginBottom:10}}>Briefwechsel nach Absender</div>
+                      {(() => {
+                        const grouped = {}
+                        docs.filter(d => d.absender).forEach(d => {
+                          const key = d.absender.trim()
+                          if (!grouped[key]) grouped[key] = { absender:key, docs:[], latest:null, cats:new Set() }
+                          grouped[key].docs.push(d)
+                          if (!grouped[key].latest || d.erstellt_am > grouped[key].latest) grouped[key].latest = d.erstellt_am
+                          grouped[key].cats.add(d.kategorie)
+                        })
+                        const groups = Object.values(grouped).sort((a,b) => b.latest.localeCompare(a.latest))
+                        return groups.length === 0 ? (
+                          <div className="empty-state"><p>Noch keine Dokumente mit Absender</p></div>
+                        ) : groups.map(g => {
+                          const mainCat = [...g.cats][0] || 'Sonstiges'
+                          const catCfg = CATS[mainCat] || CATS['Sonstiges']
+                          return (
+                            <button key={g.absender} onClick={() => setKorrespondenzFilter(g.absender)}
+                              style={{width:'100%',border:'1px solid #EFEDE6',borderRadius:16,padding:'14px 16px',background:'#fff',marginBottom:10,display:'flex',alignItems:'center',gap:12,fontFamily:'inherit',cursor:'pointer',textAlign:'left',boxShadow:'0 1px 4px rgba(0,0,0,0.05)'}}>
+                              <div style={{width:44,height:44,borderRadius:12,background:catCfg.bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,flexShrink:0}}>{catCfg.ico}</div>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:14,fontWeight:700,color:'#1A1712',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{g.absender}</div>
+                                <div style={{fontSize:12,color:'#9A968B',marginTop:2}}>{g.docs.length} Brief{g.docs.length!==1?'e':''} · {new Date(g.latest).toLocaleDateString('de-DE')}</div>
+                              </div>
+                              {Icons.chevron}
+                            </button>
+                          )
+                        })
+                      })()}
+                    </>
+                  ) : (
+                    <>
+                      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
+                        <button onClick={() => setKorrespondenzFilter(null)}
+                          style={{width:34,height:34,borderRadius:10,border:'1px solid #EFEDE6',background:'#F4F2EC',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'inherit'}}>
+                          {Icons.back}
+                        </button>
+                        <div style={{fontSize:15,fontWeight:700,color:'#1A1712',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{korrespondenzFilter}</div>
+                      </div>
+                      {docs.filter(d => d.absender === korrespondenzFilter).map(d => {
+                        const cat = CATS[d.kategorie] || CATS['Sonstiges']
+                        return (
+                          <div key={d.id} className="card" style={{padding:14,marginBottom:10,cursor:'pointer'}} onClick={() => setSelectedDoc(d)}>
+                            <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+                              <div style={{width:38,height:38,borderRadius:10,background:cat.bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{cat.ico}</div>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:14,fontWeight:700,color:'#1A1712'}}>{d.kategorie}</div>
+                                <div style={{fontSize:12,color:'#9A968B',marginTop:1}}>{new Date(d.erstellt_am).toLocaleDateString('de-DE')}</div>
+                                {d.zusammenfassung && <div style={{fontSize:13,color:'#7C786E',marginTop:6,lineHeight:1.5,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>{d.zusammenfassung}</div>}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -1337,7 +1508,7 @@ export default function Home() {
 
         {/* ── DOKUMENT DETAIL MODAL ── */}
         {selectedDoc && (
-          <div className="modal-overlay" onClick={() => { setSelectedDoc(null); setActiveTodoHighlight(null); setErklaerOpen(false); setErklaerAntwort(null) }}>
+          <div className="modal-overlay" onClick={() => { setSelectedDoc(null); setActiveTodoHighlight(null); setErklaerOpen(false); setErklaerAntwort(null); setDocEditMode(false) }}>
             <div className="modal-sheet" onClick={e => e.stopPropagation()}>
               <div className="modal-handle" />
               <div className="modal-header" style={{background:'#1F3A52',borderRadius:'30px 30px 0 0',padding:'18px 20px 16px'}}>
@@ -1346,7 +1517,7 @@ export default function Home() {
                   <div style={{fontSize:12,color:'rgba(251,250,248,0.6)',marginTop:2}}>{selectedDoc.kategorie} · {new Date(selectedDoc.erstellt_am).toLocaleDateString('de-DE')}</div>
                 </div>
                 <button style={{width:32,height:32,borderRadius:'50%',background:'rgba(255,255,255,0.14)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#FBFAF8',fontSize:16,flexShrink:0}}
-                  onClick={() => { setSelectedDoc(null); setActiveTodoHighlight(null); setErklaerOpen(false); setErklaerAntwort(null) }}>✕</button>
+                  onClick={() => { setSelectedDoc(null); setActiveTodoHighlight(null); setErklaerOpen(false); setErklaerAntwort(null); setDocEditMode(false) }}>✕</button>
               </div>
               <div className="modal-body">
                 {/* Dokumentbild mit optionalem Highlight */}
@@ -1501,14 +1672,56 @@ export default function Home() {
                     <button className="btn-primary" onClick={addNotiz} disabled={!neueNotiz.trim() || notizSaving}>{notizSaving ? '…' : 'OK'}</button>
                   </div>
                 </div>
+                {/* Felder bearbeiten */}
+                {!selectedDoc.__demo && isOwner && (
+                  <div style={{marginBottom:12}}>
+                    {!docEditMode ? (
+                      <button onClick={() => openDocEdit(selectedDoc)}
+                        style={{width:'100%',border:'1px solid #EFEDE6',borderRadius:12,padding:'10px 14px',background:'#F4F2EC',cursor:'pointer',display:'flex',alignItems:'center',gap:8,fontFamily:'inherit',color:'#7C786E',fontSize:13,fontWeight:600}}>
+                        ✏️ Absender, Kategorie oder Frist korrigieren
+                      </button>
+                    ) : (
+                      <div style={{border:'1.5px solid #BBD0DE',borderRadius:14,padding:14,background:'#EAF0F4'}}>
+                        <div className="overline" style={{marginBottom:10}}>Felder bearbeiten</div>
+                        <div className="field-wrap" style={{marginBottom:8}}>
+                          <label className="field-label">Absender</label>
+                          <input className="field-input" value={docEditAbsender} onChange={e => setDocEditAbsender(e.target.value)} placeholder="z.B. Finanzamt München" />
+                        </div>
+                        <div className="field-wrap" style={{marginBottom:8}}>
+                          <label className="field-label">Kategorie</label>
+                          <select className="field-input" value={docEditKategorie} onChange={e => setDocEditKategorie(e.target.value)}>
+                            {Object.keys(CATS).map(k => <option key={k} value={k}>{k}</option>)}
+                          </select>
+                        </div>
+                        <div className="field-wrap" style={{marginBottom:8}}>
+                          <label className="field-label">Dringlichkeit</label>
+                          <select className="field-input" value={docEditDring} onChange={e => setDocEditDring(e.target.value)}>
+                            {Object.entries(DRING).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+                          </select>
+                        </div>
+                        <div className="field-wrap" style={{marginBottom:12}}>
+                          <label className="field-label">Frist</label>
+                          <input type="date" className="field-input" value={docEditFrist} onChange={e => setDocEditFrist(e.target.value)} />
+                        </div>
+                        <div style={{display:'flex',gap:8}}>
+                          <button className="btn-primary" style={{flex:1}} disabled={docEditSaving} onClick={() => saveDocEdit(selectedDoc)}>{docEditSaving ? '…' : 'Speichern'}</button>
+                          <button className="btn-secondary" onClick={() => setDocEditMode(false)}>Abbrechen</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div style={{display:'flex',gap:8}}>
-                  <button className="btn-secondary" style={{flex:1}} onClick={() => downloadDoc(selectedDoc.storage_path, selectedDoc.dateiname)}>Laden</button>
+                  {!selectedDoc.__demo && <button className="btn-secondary" style={{flex:1}} onClick={() => downloadDoc(selectedDoc.storage_path, selectedDoc.dateiname)}>Laden</button>}
                   <button className="btn-secondary" style={{flex:1,color:'#1F3A52',borderColor:'#BBD0DE'}}
                     onClick={() => { setSelectedDoc(null); setErklaerOpen(false); setErklaerAntwort(null); genAnschreiben(selectedDoc) }}>Formelles Schreiben</button>
-                  <button style={{padding:'11px 14px',borderRadius:14,border:'1px solid #F1CFC7',background:'#FBEFEC',color:'#B3402C',cursor:'pointer',display:'flex',alignItems:'center',gap:6,fontFamily:'inherit',fontWeight:600,fontSize:14}}
-                    onClick={() => { setSelectedDoc(null); deleteDoc(selectedDoc.id, selectedDoc.storage_path) }}>
-                    {Icons.trash}
-                  </button>
+                  {!selectedDoc.__demo && (
+                    <button style={{padding:'11px 14px',borderRadius:14,border:'1px solid #F1CFC7',background:'#FBEFEC',color:'#B3402C',cursor:'pointer',display:'flex',alignItems:'center',gap:6,fontFamily:'inherit',fontWeight:600,fontSize:14}}
+                      onClick={() => { setSelectedDoc(null); deleteDoc(selectedDoc.id, selectedDoc.storage_path) }}>
+                      {Icons.trash}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -1725,14 +1938,15 @@ export default function Home() {
                 {[
                   { id:'archiv',       label:'Archiv',           desc:`${docs.length} Dokumente`,                               icon: Icons.archive, icoBg:'#E6F0E9', icoColor:'#2E5A3C' },
                   ...(isOwner ? [
+                    { id:'korrespondenz', label:'Korrespondenz',   desc:`Briefwechsel nach Absender`,                            icon: Icons.mail,    icoBg:'#EAF0F4', icoColor:'#1F3A52' },
                     { id:'familie',       label:'Familie',          desc:`${familyMembers.filter(m=>m.aktiv).length} aktive Zugänge`, icon: Icons.users,   icoBg:'#FBF0E8', icoColor:'#C2410C' },
                     { id:'kontakte',     label:'Kontakte',         desc:'Arzt, Anwalt & Co.',                                    icon: Icons.contact, icoBg:'#EAF0F4', icoColor:'#1F3A52', href:'/profil' },
-                    { id:'export',       label:'Export',           desc:'PDF & CSV',                                             icon: Icons.upload,  icoBg:'#FBF0DC', icoColor:'#8A5A12' },
+                    { id:'export',       label:'Export',           desc:'PDF, CSV & Kalender',                                   icon: Icons.upload,  icoBg:'#FBF0DC', icoColor:'#8A5A12' },
                     { id:'profil',       label:'Profil',           desc:'Persönliche Daten',                                     icon: Icons.user,    icoBg:'#F4F2EC', icoColor:'#7C786E', href:'/profil' },
                   ] : [])
                 ].map(item => (
                   <button key={item.id} className="menu-item"
-                    onClick={() => { setMenuOpen(false); item.href ? (window.location.href = item.href) : setView(item.id) }}>
+                    onClick={() => { setMenuOpen(false); setKorrespondenzFilter(null); item.href ? (window.location.href = item.href) : setView(item.id) }}>
                     <div className="menu-item-ico" style={{background:item.icoBg,color:item.icoColor}}>{item.icon}</div>
                     <div className="menu-item-info">
                       <span className="menu-item-label">{item.label}</span>
