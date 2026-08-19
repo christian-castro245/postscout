@@ -11,6 +11,11 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
+  const jwt = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+  if (!jwt) return res.status(401).json({ error: 'Nicht eingeloggt' });
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
+  if (authErr || !user) return res.status(401).json({ error: 'Session ungültig' });
+
   const { dokumentId, aufgabe, absender, betreff } = req.body;
 
   let dokZusammenfassung = '';

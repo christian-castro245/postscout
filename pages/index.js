@@ -162,7 +162,12 @@ export default function Home() {
   const [docEditFrist, setDocEditFrist]     = useState('')
   const [docEditSaving, setDocEditSaving]   = useState(false)
   const [korrespondenzFilter, setKorrespondenzFilter] = useState(null)
+  const [mergeMode, setMergeMode]           = useState(false)
+  const [mergeSelected, setMergeSelected]   = useState([])
+  const [merging, setMerging]               = useState(false)
+  const [addingPage, setAddingPage]         = useState(false)
   const fileRef          = useRef()
+  const addPageRef       = useRef()
   const galleryRef       = useRef()
   const videoRef         = useRef()
   const canvasRef        = useRef()
@@ -502,14 +507,15 @@ export default function Home() {
 
   // ── Archiv ────────────────────────────────────────────────────────────────
   async function downloadDoc(path, name) {
+    if (!path) { alert('Kein Dateipfad vorhanden'); return }
     const { data, error } = await supabase.storage.from('dokumente').download(path)
     if (error) { alert('Download fehlgeschlagen'); return }
     const url = URL.createObjectURL(data); const a = document.createElement('a')
-    a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url)
+    a.href=url; a.download=name||'dokument'; a.click(); URL.revokeObjectURL(url)
   }
   async function deleteDoc(id, path) {
     if (!confirm('Dokument wirklich löschen?')) return
-    await supabase.storage.from('dokumente').remove([path])
+    if (path) await supabase.storage.from('dokumente').remove([path])
     await supabase.from('dokumente').delete().eq('id', id); loadAll()
   }
 
@@ -519,8 +525,8 @@ export default function Home() {
     setNotizSaving(true)
     const autorName = session.user.email.split('@')[0]
     await fetch('/api/notiz', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ dokument_id:selectedDoc.id, text:neueNotiz.trim(), autor:autorName, user_id:session.user.id }),
+      method:'POST', headers:{'Content-Type':'application/json', 'Authorization':`Bearer ${session.access_token}`},
+      body:JSON.stringify({ dokument_id:selectedDoc.id, text:neueNotiz.trim(), autor:autorName }),
     })
     setNeueNotiz('')
     const { data } = await supabase.from('dokumente').select('*').eq('id', selectedDoc.id).single()
@@ -541,7 +547,7 @@ export default function Home() {
     setAnschreibenDoc(doc); setAnschreiben({ loading:true })
     const { data:profil } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
     const res = await fetch('/api/anschreiben', {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST', headers:{'Content-Type':'application/json', 'Authorization':`Bearer ${session.access_token}`},
       body:JSON.stringify({ dokument:doc, profil, kontakte }),
     })
     const data = await res.json()
@@ -561,7 +567,7 @@ export default function Home() {
     setAntwortDoc(doc); setAntwortText(null); setAntwortLoading(true)
     try {
       const res = await fetch('/api/generate-reply', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
         body: JSON.stringify({
           dokumentId: doc.id,
           aufgabe: doc.todos?.find(t => t.typ === 'antwort')?.aufgabe || 'Antwort erforderlich',
@@ -589,7 +595,7 @@ export default function Home() {
     setErklaerFrage(frage); setErklaerAntwort(null); setErklaerLoading(true)
     try {
       const res = await fetch('/api/erklaer-mir', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
         body: JSON.stringify({ zusammenfassung: doc.zusammenfassung || doc.dateiname, frage }),
       })
       const data = await res.json()
@@ -720,6 +726,49 @@ export default function Home() {
     setExportMsg({ text:`${events.length} Fristen exportiert`, err:false }); setTimeout(()=>setExportMsg(null),3000)
   }
 
+  // ── Page Add ──────────────────────────────────────────────────────────────
+  async function addPageToDoc(doc, file) {
+    if (!file || !session) return
+    setAddingPage(true)
+    try {
+      const ext = file.name.split('.').pop() || 'jpg'
+      const path = `${session.user.id}/${Date.now()}_extra.${ext}`
+      const { error: upErr } = await supabase.storage.from('dokumente').upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg' })
+      if (upErr) throw new Error(upErr.message)
+      const { data: urlData } = supabase.storage.from('dokumente').getPublicUrl(path)
+      const newUrl = urlData?.publicUrl || ''
+      const existingUrls = doc.bild_urls || (doc.bild_url ? [doc.bild_url] : [])
+      const newUrls = [...existingUrls, newUrl]
+      await supabase.from('dokumente').update({ bild_urls: newUrls }).eq('id', doc.id)
+      const updated = { ...doc, bild_urls: newUrls }
+      setDocs(prev => prev.map(d => d.id === doc.id ? updated : d))
+      setSelectedDoc(updated)
+    } catch(e) { console.error('addPage:', e) }
+    setAddingPage(false)
+  }
+
+  // ── Merge Docs ────────────────────────────────────────────────────────────
+  function toggleMergeSelect(docId) {
+    setMergeSelected(prev => prev.includes(docId) ? prev.filter(id => id !== docId) : prev.length < 2 ? [...prev, docId] : prev)
+  }
+  async function mergeDocs() {
+    if (mergeSelected.length !== 2) return
+    setMerging(true)
+    const [idA, idB] = mergeSelected
+    const docA = docs.find(d => d.id === idA)
+    const docB = docs.find(d => d.id === idB)
+    if (!docA || !docB) { setMerging(false); return }
+    const urlsA = docA.bild_urls || (docA.bild_url ? [docA.bild_url] : [])
+    const urlsB = docB.bild_urls || (docB.bild_url ? [docB.bild_url] : [])
+    const combined = [...urlsA, ...urlsB]
+    await supabase.from('dokumente').update({ bild_urls: combined }).eq('id', idA)
+    if (docB.storage_path) await supabase.storage.from('dokumente').remove([docB.storage_path])
+    await supabase.from('dokumente').delete().eq('id', idB)
+    setMergeMode(false); setMergeSelected([])
+    setMerging(false)
+    await loadAll()
+  }
+
   // ── Doc Edit ──────────────────────────────────────────────────────────────
   function openDocEdit(doc) {
     setDocEditAbsender(doc.absender || '')
@@ -812,7 +861,7 @@ export default function Home() {
               {Icons.back}
             </button>
           ) : session ? (
-            <button className="top-back-btn" onClick={() => setMenuOpen(true)} title="Menü">
+            <button className="top-back-btn" onClick={() => setMenuOpen(true)} aria-label="Menü öffnen" aria-expanded={menuOpen}>
               {Icons.menu}
             </button>
           ) : (
@@ -1232,11 +1281,24 @@ export default function Home() {
                       </div>
                     ) : null
                   })()}
-                  <div className="chip-bar">
-                    {['Alle', ...Object.keys(CATS)].map(c => (
-                      <button key={c} className={`chip${docFilter === c ? ' chip-active' : ''}`} onClick={() => setDocFilter(c)}>{c}</button>
-                    ))}
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+                    <div className="chip-bar" style={{flex:1,marginBottom:0}}>
+                      {['Alle', ...Object.keys(CATS)].map(c => (
+                        <button key={c} className={`chip${docFilter === c ? ' chip-active' : ''}`} onClick={() => { setDocFilter(c); if (mergeMode) { setMergeMode(false); setMergeSelected([]) } }}>{c}</button>
+                      ))}
+                    </div>
+                    {isOwner && (
+                      <button onClick={() => { setMergeMode(m => !m); setMergeSelected([]) }}
+                        style={{padding:'5px 10px',borderRadius:20,fontSize:12,fontWeight:600,border:`1.5px solid ${mergeMode?'#1F3A52':'#E0DDD3'}`,background:mergeMode?'#EAF0F4':'#FBFAF8',color:mergeMode?'#1F3A52':'#9A968B',cursor:'pointer',whiteSpace:'nowrap',fontFamily:'inherit',flexShrink:0}}>
+                        {mergeMode ? 'Abbrechen' : 'Zusammenführen'}
+                      </button>
+                    )}
                   </div>
+                  {mergeMode && (
+                    <div style={{background:'#EAF0F4',border:'1px solid #BBD0DE',borderRadius:12,padding:'10px 14px',marginBottom:12,fontSize:13,color:'#1F3A52',fontWeight:500}}>
+                      {mergeSelected.length === 0 ? 'Erstes Dokument auswählen' : mergeSelected.length === 1 ? 'Zweites Dokument auswählen' : 'Bereit zum Zusammenführen'}
+                    </div>
+                  )}
                   {filteredDocs.length === 0
                     ? <div className="empty-state">
                         {Icons.archive}
@@ -1245,9 +1307,17 @@ export default function Home() {
                     : filteredDocs.map(d => {
                         const cat = CATS[d.kategorie] || CATS['Sonstiges']
                         const dr = DRING[d.dringlichkeit] || DRING.niedrig
+                        const isMergeSelected = mergeSelected.includes(d.id)
                         return (
-                          <div key={d.id} className="doc-card" onClick={() => setSelectedDoc(d)}>
+                          <div key={d.id} className="doc-card"
+                            style={mergeMode ? {outline: isMergeSelected ? '2px solid #1F3A52' : '2px solid transparent', outlineOffset:2} : {}}
+                            onClick={() => mergeMode ? toggleMergeSelect(d.id) : setSelectedDoc(d)}>
                             <div className="doc-card-row">
+                              {mergeMode && (
+                                <div style={{width:20,height:20,borderRadius:'50%',border:`2px solid ${isMergeSelected?'#1F3A52':'#BBD0DE'}`,background:isMergeSelected?'#1F3A52':'#fff',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:2}}>
+                                  {isMergeSelected && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>}
+                                </div>
+                              )}
                               <div className="cat-chip" style={{background:cat.bg,color:cat.text}}>{cat.ico}</div>
                               <div className="doc-info">
                                 <div className="doc-name">{d.absender || d.dateiname}</div>
@@ -1263,7 +1333,7 @@ export default function Home() {
                                 ))}
                               </div>
                             )}
-                            {isOwner && (
+                            {isOwner && !mergeMode && (
                               <div className="doc-actions" onClick={e => e.stopPropagation()}>
                                 <button className="btn-ghost btn-sm" onClick={() => downloadDoc(d.storage_path, d.dateiname)}>Laden</button>
                                 <button className="btn-ghost btn-sm" style={{color:'#1F3A52',borderColor:'#BBD0DE'}} onClick={() => { setSelectedDoc(null); genAnschreiben(d) }}>Formelles Schreiben</button>
@@ -1274,6 +1344,14 @@ export default function Home() {
                         )
                       })
                   }
+                  {mergeMode && mergeSelected.length === 2 && (
+                    <div style={{position:'sticky',bottom:80,zIndex:20,padding:'12px 0 4px'}}>
+                      <button onClick={mergeDocs} disabled={merging}
+                        style={{width:'100%',padding:'14px',borderRadius:16,border:'none',background:'#1F3A52',color:'#fff',fontSize:15,fontWeight:700,cursor:'pointer',fontFamily:'inherit',boxShadow:'0 4px 16px rgba(31,58,82,0.36)'}}>
+                        {merging ? 'Zusammenführen…' : '📄 Zu einem Dokument zusammenführen'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1516,7 +1594,8 @@ export default function Home() {
                   <div style={{fontSize:16,fontWeight:700,color:'#FBFAF8'}}>{selectedDoc.absender || selectedDoc.dateiname}</div>
                   <div style={{fontSize:12,color:'rgba(251,250,248,0.6)',marginTop:2}}>{selectedDoc.kategorie} · {new Date(selectedDoc.erstellt_am).toLocaleDateString('de-DE')}</div>
                 </div>
-                <button style={{width:32,height:32,borderRadius:'50%',background:'rgba(255,255,255,0.14)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#FBFAF8',fontSize:16,flexShrink:0}}
+                <button style={{width:44,height:44,borderRadius:'50%',background:'rgba(255,255,255,0.14)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#FBFAF8',fontSize:16,flexShrink:0}}
+                  aria-label="Schließen"
                   onClick={() => { setSelectedDoc(null); setActiveTodoHighlight(null); setErklaerOpen(false); setErklaerAntwort(null); setDocEditMode(false) }}>✕</button>
               </div>
               <div className="modal-body">
@@ -1712,12 +1791,23 @@ export default function Home() {
                   </div>
                 )}
 
+                {!selectedDoc.__demo && isOwner && (
+                  <div style={{marginBottom:10}}>
+                    <input ref={addPageRef} type="file" accept="image/*,application/pdf" style={{display:'none'}}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) addPageToDoc(selectedDoc, f); e.target.value = '' }} />
+                    <button onClick={() => addPageRef.current?.click()} disabled={addingPage}
+                      style={{width:'100%',border:'1px solid #EFEDE6',borderRadius:12,padding:'10px 14px',background:'#F4F2EC',cursor:'pointer',display:'flex',alignItems:'center',gap:8,fontFamily:'inherit',color:'#1F3A52',fontSize:13,fontWeight:600}}>
+                      {addingPage ? '⏳ Seite wird hinzugefügt…' : '➕ Weitere Seite hinzufügen'}
+                    </button>
+                  </div>
+                )}
                 <div style={{display:'flex',gap:8}}>
                   {!selectedDoc.__demo && <button className="btn-secondary" style={{flex:1}} onClick={() => downloadDoc(selectedDoc.storage_path, selectedDoc.dateiname)}>Laden</button>}
                   <button className="btn-secondary" style={{flex:1,color:'#1F3A52',borderColor:'#BBD0DE'}}
                     onClick={() => { setSelectedDoc(null); setErklaerOpen(false); setErklaerAntwort(null); genAnschreiben(selectedDoc) }}>Formelles Schreiben</button>
                   {!selectedDoc.__demo && (
                     <button style={{padding:'11px 14px',borderRadius:14,border:'1px solid #F1CFC7',background:'#FBEFEC',color:'#B3402C',cursor:'pointer',display:'flex',alignItems:'center',gap:6,fontFamily:'inherit',fontWeight:600,fontSize:14}}
+                      aria-label="Dokument löschen"
                       onClick={() => { setSelectedDoc(null); deleteDoc(selectedDoc.id, selectedDoc.storage_path) }}>
                       {Icons.trash}
                     </button>
@@ -1747,7 +1837,8 @@ export default function Home() {
                     <div style={{fontSize:15,fontWeight:700,color:'#FBFAF8',lineHeight:1.4}}>{selectedTodo.aufgabe}</div>
                     <div style={{fontSize:12,color:'rgba(251,250,248,0.6)',marginTop:3}}>{selectedTodo.catIco} {selectedTodo.docName}</div>
                   </div>
-                  <button style={{width:32,height:32,borderRadius:'50%',background:'rgba(255,255,255,0.14)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#FBFAF8',fontSize:16,flexShrink:0}}
+                  <button style={{width:44,height:44,borderRadius:'50%',background:'rgba(255,255,255,0.14)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#FBFAF8',fontSize:16,flexShrink:0}}
+                    aria-label="Schließen"
                     onClick={() => setSelectedTodo(null)}>✕</button>
                 </div>
                 <div className="modal-body">
@@ -1932,7 +2023,7 @@ export default function Home() {
               <div className="modal-handle" />
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 20px 10px'}}>
                 <span style={{fontSize:18,fontWeight:700,color:'var(--ps-ink)'}}>Menü</span>
-                <button className="icon-close" onClick={() => setMenuOpen(false)}>✕</button>
+                <button className="icon-close" onClick={() => setMenuOpen(false)} aria-label="Menü schließen">✕</button>
               </div>
               <div style={{padding:'0 0 max(32px,env(safe-area-inset-bottom))'}}>
                 {[
@@ -1973,11 +2064,13 @@ export default function Home() {
               const isActive = view === tab.id
               return (
                 <button key={tab.id} className={`bottom-tab${isActive ? ' bottom-tab-active' : ''}`}
-                  onClick={() => setView(tab.id)}>
-                  <span className="bottom-tab-ico">{tab.icon}</span>
+                  onClick={() => setView(tab.id)}
+                  aria-label={tab.label}
+                  aria-current={isActive ? 'page' : undefined}>
+                  <span className="bottom-tab-ico" aria-hidden="true">{tab.icon}</span>
                   <span className="bottom-tab-lbl">{tab.label}</span>
                   {tab.id === 'home' && openTodos > 0 && (
-                    <span className="bottom-badge" style={{background: urgentTodos > 0 ? '#F97316' : '#1F3A52'}}>{openTodos}</span>
+                    <span className="bottom-badge" aria-label={`${openTodos} offene Aufgaben`} style={{background: urgentTodos > 0 ? '#F97316' : '#1F3A52'}}>{openTodos}</span>
                   )}
                 </button>
               )
@@ -2012,7 +2105,11 @@ export default function Home() {
 
         /* Typography */
         .overline { font-size:11px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:#B6B2A6; }
-        .caption { font-size:13px; font-weight:500; color:var(--ps-muted); line-height:1.4; }
+        .caption { font-size:14px; font-weight:500; color:var(--ps-muted); line-height:1.4; }
+
+        /* Accessibility */
+        :focus-visible { outline:3px solid var(--ps-petrol); outline-offset:2px; border-radius:4px; }
+        button:focus:not(:focus-visible),a:focus:not(:focus-visible) { outline:none; }
 
         /* Header */
         .top-bar { background:var(--ps-petrol); padding:14px 18px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:50; box-shadow:0 1px 0 rgba(255,255,255,0.06),0 2px 12px rgba(26,23,18,0.18); }
@@ -2109,9 +2206,10 @@ export default function Home() {
         .todo-card-payment { border-left:3px solid #C2410C; }
         .job-spinner { width:14px; height:14px; border:2px solid rgba(251,250,248,0.2); border-top-color:rgba(251,250,248,0.85); border-radius:50%; animation:spin 0.7s linear infinite; flex-shrink:0; }
         @keyframes spin { to { transform:rotate(360deg); } }
-        .todo-check-btn { width:22px; height:22px; border-radius:50%; border:2px solid; flex-shrink:0; margin-top:2px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 120ms,border-color 120ms; font-family:inherit; }
+        .todo-check-btn { width:22px; height:22px; border-radius:50%; border:2px solid; flex-shrink:0; margin-top:2px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background 120ms,border-color 120ms; font-family:inherit; position:relative; }
+        .todo-check-btn::before { content:''; position:absolute; inset:-11px; }
         .todo-body { flex:1; min-width:0; }
-        .todo-aufgabe { font-size:14px; font-weight:500; color:var(--ps-ink); line-height:1.45; margin-bottom:6px; }
+        .todo-aufgabe { font-size:15px; font-weight:500; color:var(--ps-ink); line-height:1.45; margin-bottom:6px; }
         .todo-meta { display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:11px; color:var(--ps-faint); }
         .pill-zahlung { background:#FBF0E8; color:#C2410C; font-weight:700; border-radius:20px; padding:2px 8px; font-size:11px; }
         .payment-card { background:#FBF0E8; border:1px solid #F1D0C0; border-radius:14px; padding:16px; margin-bottom:12px; }
@@ -2149,7 +2247,7 @@ export default function Home() {
         .doc-info { flex:1; min-width:0; }
         .doc-name { font-size:15px; font-weight:600; color:var(--ps-ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .doc-meta { font-size:12px; color:var(--ps-faint); margin-top:2px; }
-        .doc-summary { font-size:13px; color:var(--ps-muted); line-height:1.6; margin-bottom:10px; }
+        .doc-summary { font-size:14px; color:var(--ps-muted); line-height:1.6; margin-bottom:10px; }
         .status-pill { font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; flex-shrink:0; white-space:nowrap; }
         .doc-actions { display:flex; gap:6px; margin-top:10px; }
         .attach-row { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }

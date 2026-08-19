@@ -1,7 +1,16 @@
+import { createClient } from '@supabase/supabase-js'
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+
 export const config = { api: { bodyParser: { sizeLimit: '1mb' } } }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Nur POST' })
+
+  const jwt = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim()
+  if (!jwt) return res.status(401).json({ error: 'Nicht eingeloggt' })
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt)
+  if (authErr || !user) return res.status(401).json({ error: 'Session ungültig' })
+
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY fehlt' })
 

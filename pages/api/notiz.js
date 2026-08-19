@@ -10,8 +10,14 @@ const supabaseAdmin = createClient(
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Nur POST' })
-  const { dokument_id, text, autor, user_id } = req.body
-  if (!dokument_id || !text || !user_id) return res.status(400).json({ error: 'Fehlende Parameter' })
+
+  const jwt = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim()
+  if (!jwt) return res.status(401).json({ error: 'Nicht eingeloggt' })
+  const { data: { user }, error: authErr } = await supabaseAdmin.auth.getUser(jwt)
+  if (authErr || !user) return res.status(401).json({ error: 'Session ungültig' })
+
+  const { dokument_id, text, autor } = req.body
+  if (!dokument_id || !text) return res.status(400).json({ error: 'Fehlende Parameter' })
 
   const { data: doc } = await supabaseAdmin
     .from('dokumente').select('notizen').eq('id', dokument_id).single()

@@ -4,8 +4,10 @@
 // Erklärt Briefinhalte in einfacher Sprache für Senioren
 
 import Anthropic from '@anthropic-ai/sdk'
+import { createClient } from '@supabase/supabase-js'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
 const FRAGEN_KONTEXT = {
   'was_tun':     'Was genau muss ich tun? Bitte ganz konkret und in einfachen Worten.',
@@ -16,6 +18,11 @@ const FRAGEN_KONTEXT = {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
+
+  const jwt = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim()
+  if (!jwt) return res.status(401).json({ error: 'Nicht eingeloggt' })
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt)
+  if (authErr || !user) return res.status(401).json({ error: 'Session ungültig' })
 
   const { zusammenfassung, frage } = req.body
   if (!zusammenfassung || !frage) return res.status(400).json({ error: 'zusammenfassung und frage erforderlich' })
