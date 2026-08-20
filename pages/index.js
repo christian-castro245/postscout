@@ -107,8 +107,10 @@ export default function Home() {
   const [authMode, setAuthMode]       = useState('login')
   const [authEmail, setAuthEmail]     = useState('')
   const [authPw, setAuthPw]           = useState('')
+  const [authNewPw, setAuthNewPw]     = useState('')
   const [authLoading, setAuthLoading] = useState(false)
   const [authMsg, setAuthMsg]         = useState(null)
+  const [pwRecovery, setPwRecovery]   = useState(false)
   const [view, setView]               = useState('home')
   const [photos, setPhotos]           = useState([])
   const [analyzing, setAnalyzing]     = useState(false)
@@ -181,7 +183,8 @@ export default function Home() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session); if (session) init(session)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') { setPwRecovery(true); return }
       setSession(session); if (session) init(session)
     })
     return () => subscription.unsubscribe()
@@ -220,13 +223,45 @@ export default function Home() {
     setProfVorname(''); setProfNachname(''); setProfAnrede('du')
   }
 
+  function validatePassword(pw) {
+    if (pw.length < 8)            return 'Mindestens 8 Zeichen erforderlich.'
+    if (!/[A-Z]/.test(pw))       return 'Mindestens ein Großbuchstabe erforderlich.'
+    if (!/[a-z]/.test(pw))       return 'Mindestens ein Kleinbuchstabe erforderlich.'
+    if (!/[0-9]/.test(pw))       return 'Mindestens eine Ziffer erforderlich.'
+    if (!/[^A-Za-z0-9]/.test(pw)) return 'Mindestens ein Sonderzeichen erforderlich.'
+    return null
+  }
+
   async function handleAuth() {
     setAuthLoading(true); setAuthMsg(null)
+    if (authMode === 'reset') {
+      if (!authEmail.trim()) { setAuthMsg({ text: 'Bitte E-Mail eingeben.', err: true }); setAuthLoading(false); return }
+      const { error } = await supabase.auth.resetPasswordForEmail(authEmail.trim(), {
+        redirectTo: `${appUrl}`,
+      })
+      if (error) setAuthMsg({ text: error.message, err: true })
+      else setAuthMsg({ text: 'Link zum Zurücksetzen wurde gesendet. Bitte prüfen Sie Ihr Postfach.', err: false })
+      setAuthLoading(false); return
+    }
+    if (authMode === 'register') {
+      const pwErr = validatePassword(authPw)
+      if (pwErr) { setAuthMsg({ text: pwErr, err: true }); setAuthLoading(false); return }
+    }
     const { error } = authMode === 'login'
       ? await supabase.auth.signInWithPassword({ email: authEmail, password: authPw })
       : await supabase.auth.signUp({ email: authEmail, password: authPw })
     if (error) setAuthMsg({ text: error.message, err: true })
-    else if (authMode === 'register') setAuthMsg({ text: 'Bestätigungs-E-Mail gesendet.', err: false })
+    else if (authMode === 'register') setAuthMsg({ text: 'Bestätigungs-E-Mail gesendet. Bitte prüfen Sie Ihr Postfach.', err: false })
+    setAuthLoading(false)
+  }
+
+  async function handleSetNewPassword() {
+    const pwErr = validatePassword(authNewPw)
+    if (pwErr) { setAuthMsg({ text: pwErr, err: true }); return }
+    setAuthLoading(true); setAuthMsg(null)
+    const { error } = await supabase.auth.updateUser({ password: authNewPw })
+    if (error) setAuthMsg({ text: error.message, err: true })
+    else { setPwRecovery(false); setAuthNewPw(''); setAuthMsg({ text: 'Passwort erfolgreich geändert.', err: false }) }
     setAuthLoading(false)
   }
 
@@ -892,7 +927,7 @@ export default function Home() {
         <div className="content">
 
           {/* ── AUTH ── */}
-          {!session && (
+          {!session && !pwRecovery && (
             <div className="auth-wrap">
               <div className="auth-hero">
                 <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="rgba(251,250,248,0.9)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{marginBottom:20}}>
@@ -910,23 +945,59 @@ export default function Home() {
                     onKeyDown={e => e.key === 'Enter' && handleAuth()}
                     placeholder="name@beispiel.de" autoComplete="email" />
                 </div>
-                <div className="field-wrap">
-                  <label className="field-label">Passwort</label>
-                  <input className="field-input" type="password" value={authPw}
-                    onChange={e => setAuthPw(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleAuth()}
-                    placeholder="Mindestens 6 Zeichen" autoComplete="current-password" />
-                </div>
+                {authMode !== 'reset' && (
+                  <div className="field-wrap">
+                    <label className="field-label">Passwort</label>
+                    <input className="field-input" type="password" value={authPw}
+                      onChange={e => setAuthPw(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleAuth()}
+                      placeholder={authMode === 'register' ? 'Mindestens 8 Zeichen' : 'Ihr Passwort'}
+                      autoComplete={authMode === 'register' ? 'new-password' : 'current-password'} />
+                  </div>
+                )}
                 {authMsg && <div className={`msg ${authMsg.err ? 'msg-err' : 'msg-ok'}`}>{authMsg.text}</div>}
                 <button className="btn-primary btn-full" onClick={handleAuth} disabled={authLoading}>
-                  {authLoading ? 'Bitte warten…' : authMode === 'login' ? 'Anmelden' : 'Registrieren'}
+                  {authLoading ? 'Bitte warten…' : authMode === 'login' ? 'Anmelden' : authMode === 'register' ? 'Registrieren' : 'Link senden'}
                 </button>
+                {authMode === 'login' && (
+                  <div style={{textAlign:'center',marginTop:4}}>
+                    <a style={{fontSize:13,color:'#7C786E',cursor:'pointer'}} onClick={() => { setAuthMode('reset'); setAuthMsg(null) }}>
+                      Passwort vergessen?
+                    </a>
+                  </div>
+                )}
                 <div className="auth-toggle">
-                  {authMode === 'login' ? 'Noch kein Konto? ' : 'Bereits registriert? '}
+                  {authMode === 'login' ? 'Noch kein Konto? ' : 'Zurück zur '}
                   <a onClick={() => { setAuthMode(m => m === 'login' ? 'register' : 'login'); setAuthMsg(null) }}>
-                    {authMode === 'login' ? 'Registrieren' : 'Anmelden'}
+                    {authMode === 'login' ? 'Registrieren' : 'Anmeldung'}
                   </a>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── PASSWORT ZURÜCKSETZEN ── */}
+          {!session && pwRecovery && (
+            <div className="auth-wrap">
+              <div className="auth-hero">
+                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="rgba(251,250,248,0.9)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{marginBottom:20}}>
+                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                <h1 className="auth-title">Neues Passwort</h1>
+                <p className="auth-sub">Wählen Sie ein sicheres neues Passwort.</p>
+              </div>
+              <div className="auth-sheet">
+                <div className="field-wrap">
+                  <label className="field-label">Neues Passwort</label>
+                  <input className="field-input" type="password" value={authNewPw}
+                    onChange={e => setAuthNewPw(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleSetNewPassword()}
+                    placeholder="Mindestens 8 Zeichen" autoComplete="new-password" />
+                </div>
+                {authMsg && <div className={`msg ${authMsg.err ? 'msg-err' : 'msg-ok'}`}>{authMsg.text}</div>}
+                <button className="btn-primary btn-full" onClick={handleSetNewPassword} disabled={authLoading}>
+                  {authLoading ? 'Bitte warten…' : 'Passwort speichern'}
+                </button>
               </div>
             </div>
           )}
