@@ -56,10 +56,16 @@ export function useAuth() {
     return supabase.auth.signUp({ email, password })
   }
 
+  async function resetPassword(email: string) {
+    return supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: 'https://postscout-beige.vercel.app',
+    })
+  }
+
   async function signOut() {
     await supabase.auth.signOut()
     setProfile(null)
   }
 
-  return { session, loading, profile, greeting, signIn, signUp, signOut }
+  return { session, loading, profile, greeting, signIn, signUp, signOut, resetPassword }
 }

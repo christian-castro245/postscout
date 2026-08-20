@@ -8,8 +8,8 @@ import { useAuth } from '../hooks/useAuth'
 import { Colors, FontFamily, Spacing, Radius } from '../constants/theme'
 
 export default function AuthScreen() {
-  const { session, loading, signIn, signUp } = useAuth()
-  const [mode, setMode]         = useState<'login' | 'register'>('login')
+  const { session, loading, signIn, signUp, resetPassword } = useAuth()
+  const [mode, setMode]         = useState<'login' | 'register' | 'reset'>('login')
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy]         = useState(false)
@@ -56,6 +56,15 @@ export default function AuthScreen() {
   }
 
   async function handleAuth() {
+    if (mode === 'reset') {
+      if (!email.trim()) { setMsg({ text: 'Bitte E-Mail-Adresse eingeben.', err: true }); return }
+      setBusy(true); setMsg(null)
+      const { error } = await resetPassword(email.trim())
+      if (error) setMsg({ text: error.message, err: true })
+      else setMsg({ text: 'Link gesendet. Bitte prüfen Sie Ihr Postfach.', err: false })
+      setBusy(false)
+      return
+    }
     if (!email.trim() || !password.trim()) {
       setMsg({ text: 'Bitte E-Mail und Passwort eingeben.', err: true })
       return
@@ -98,20 +107,29 @@ export default function AuthScreen() {
         <Animated.View
           style={[S.sheet, { opacity: cardOpacity, transform: [{ translateY: cardTranslate }] }]}
         >
-          <View style={S.tabRow}>
-            <TouchableOpacity
-              style={[S.tab, mode === 'login' && S.tabActive]}
-              onPress={() => { setMode('login'); setMsg(null) }}
-            >
-              <Text style={[S.tabLabel, mode === 'login' && S.tabLabelActive]}>Anmelden</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[S.tab, mode === 'register' && S.tabActive]}
-              onPress={() => { setMode('register'); setMsg(null) }}
-            >
-              <Text style={[S.tabLabel, mode === 'register' && S.tabLabelActive]}>Registrieren</Text>
-            </TouchableOpacity>
-          </View>
+          {mode !== 'reset' && (
+            <View style={S.tabRow}>
+              <TouchableOpacity
+                style={[S.tab, mode === 'login' && S.tabActive]}
+                onPress={() => { setMode('login'); setMsg(null) }}
+              >
+                <Text style={[S.tabLabel, mode === 'login' && S.tabLabelActive]}>Anmelden</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.tab, mode === 'register' && S.tabActive]}
+                onPress={() => { setMode('register'); setMsg(null) }}
+              >
+                <Text style={[S.tabLabel, mode === 'register' && S.tabLabelActive]}>Registrieren</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {mode === 'reset' && (
+            <View style={S.resetHeader}>
+              <Text style={S.resetTitle}>Passwort zurücksetzen</Text>
+              <Text style={S.resetSub}>Wir senden Ihnen einen Link an Ihre E-Mail-Adresse.</Text>
+            </View>
+          )}
 
           <View style={S.fieldWrap}>
             <Text style={S.label}>E-Mail-Adresse</Text>
@@ -123,30 +141,33 @@ export default function AuthScreen() {
               keyboardType="email-address"
               autoComplete="email"
               textContentType="emailAddress"
-              returnKeyType="next"
+              returnKeyType={mode === 'reset' ? 'done' : 'next'}
+              onSubmitEditing={mode === 'reset' ? handleAuth : undefined}
               placeholderTextColor={Colors.faint}
               placeholder="ihre@email.de"
             />
           </View>
 
-          <View style={S.fieldWrap}>
-            <Text style={S.label}>Passwort</Text>
-            <TextInput
-              style={S.input}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              textContentType={mode === 'login' ? 'password' : 'newPassword'}
-              returnKeyType="done"
-              onSubmitEditing={handleAuth}
-              placeholderTextColor={Colors.faint}
-              placeholder="••••••••"
-            />
-            {mode === 'register' && password.length > 0 && (
-              <PasswordStrength password={password} />
-            )}
-          </View>
+          {mode !== 'reset' && (
+            <View style={S.fieldWrap}>
+              <Text style={S.label}>Passwort</Text>
+              <TextInput
+                style={S.input}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                textContentType={mode === 'login' ? 'password' : 'newPassword'}
+                returnKeyType="done"
+                onSubmitEditing={handleAuth}
+                placeholderTextColor={Colors.faint}
+                placeholder="••••••••"
+              />
+              {mode === 'register' && password.length > 0 && (
+                <PasswordStrength password={password} />
+              )}
+            </View>
+          )}
 
           {msg && (
             <View style={[S.msgBox, msg.err ? S.msgErr : S.msgOk]}>
@@ -157,9 +178,23 @@ export default function AuthScreen() {
           <TouchableOpacity style={S.btn} onPress={handleAuth} disabled={busy}>
             {busy
               ? <ActivityIndicator color="#fff" />
-              : <Text style={S.btnLabel}>{mode === 'login' ? 'Anmelden' : 'Konto erstellen'}</Text>
+              : <Text style={S.btnLabel}>
+                  {mode === 'login' ? 'Anmelden' : mode === 'register' ? 'Konto erstellen' : 'Link senden'}
+                </Text>
             }
           </TouchableOpacity>
+
+          {mode === 'login' && (
+            <TouchableOpacity style={S.forgotBtn} onPress={() => { setMode('reset'); setMsg(null) }}>
+              <Text style={S.forgotLabel}>Passwort vergessen?</Text>
+            </TouchableOpacity>
+          )}
+
+          {mode === 'reset' && (
+            <TouchableOpacity style={S.forgotBtn} onPress={() => { setMode('login'); setMsg(null) }}>
+              <Text style={S.forgotLabel}>Zurück zur Anmeldung</Text>
+            </TouchableOpacity>
+          )}
         </Animated.View>
 
         <Animated.Text style={[S.dsgvo, { opacity: cardOpacity }]}>
@@ -236,7 +271,12 @@ const S = StyleSheet.create({
   msgErr:     { backgroundColor: Colors.urgentBg },
   msgOk:      { backgroundColor: Colors.doneBg },
   msgText:    { fontFamily: FontFamily.body, fontSize: 14 },
-  btn:        { backgroundColor: Colors.petrol, borderRadius: Radius.lg, paddingVertical: 15, alignItems: 'center', marginTop: 4 },
-  btnLabel:   { fontFamily: FontFamily.bodyBold, fontSize: 16, color: '#fff' },
-  dsgvo:      { fontFamily: FontFamily.bodyRegular, fontSize: 12, color: 'rgba(255,255,255,0.45)', textAlign: 'center', paddingHorizontal: 28, paddingVertical: 20 },
+  btn:          { backgroundColor: Colors.petrol, borderRadius: Radius.lg, paddingVertical: 15, alignItems: 'center', marginTop: 4 },
+  btnLabel:     { fontFamily: FontFamily.bodyBold, fontSize: 16, color: '#fff' },
+  forgotBtn:    { alignItems: 'center', paddingVertical: 14 },
+  forgotLabel:  { fontFamily: FontFamily.body, fontSize: 14, color: Colors.muted },
+  resetHeader:  { marginBottom: 20 },
+  resetTitle:   { fontFamily: FontFamily.bodyBold, fontSize: 18, color: Colors.ink, marginBottom: 6 },
+  resetSub:     { fontFamily: FontFamily.body, fontSize: 14, color: Colors.muted, lineHeight: 20 },
+  dsgvo:        { fontFamily: FontFamily.bodyRegular, fontSize: 12, color: 'rgba(255,255,255,0.45)', textAlign: 'center', paddingHorizontal: 28, paddingVertical: 20 },
 })
