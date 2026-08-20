@@ -32,7 +32,6 @@ export default function TabLayout() {
           title: 'Start',
           tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} />,
           headerTitle: 'Postklar',
-          headerRight: () => null,
         }}
       />
       <Tabs.Screen

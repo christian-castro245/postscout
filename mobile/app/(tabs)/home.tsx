@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   RefreshControl, ActivityIndicator, Animated, Modal,
@@ -20,11 +20,13 @@ export default function HomeScreen() {
   const fade = useFadeIn()
   const navigation = useNavigation()
 
+  const openMenu = useCallback(() => setMenuOpen(true), [])
+
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <TouchableOpacity
-          onPress={() => setMenuOpen(true)}
+          onPress={openMenu}
           hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           style={{ marginRight: 16 }}
         >
@@ -32,7 +34,7 @@ export default function HomeScreen() {
         </TouchableOpacity>
       ),
     })
-  }, [navigation])
+  }, [navigation, openMenu])
 
   useEffect(() => {
     if (session) load()
