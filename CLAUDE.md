@@ -165,14 +165,27 @@ const camColor = scanQuality === 'good' ? '#22c55e' : '...'
 ```
 **Lesson:** `headerRight` nur im `_layout.tsx` setzen ODER nur im Screen via `setOptions` — nie beides, der Layout-Wert gewinnt bei Re-Renders.
 
-### useCallback für Funktionen in navigation.setOptions
-**Lesson:** Callback-Funktionen die an `navigation.setOptions` übergeben werden mit `useCallback` stabilisieren, sonst löst jeder Render ein erneutes `setOptions` aus.
+### useNavigation().setOptions() in useEffect ist unzuverlässig in Expo Router v5
+**Fall:** Hamburger-Menü wurde per `useNavigation().setOptions()` in einem `useEffect` gesetzt. Das feuert erst nach dem ersten Render (async) und kann in bestimmten Situationen nicht ankommen oder überschrieben werden. Button erschien nie im Build.
+**Fix:** Stattdessen `<Tabs.Screen options={...}>` direkt im JSX des Screen-Components verwenden. Wird synchron beim Rendern ausgewertet, kein Timing-Problem.
 ```tsx
-const openMenu = useCallback(() => setMenuOpen(true), [])
+// ❌ UNZUVERLÄSSIG — async, kann überschrieben werden
+const navigation = useNavigation()
 useEffect(() => {
-  navigation.setOptions({ headerRight: () => <Btn onPress={openMenu} /> })
-}, [navigation, openMenu])
+  navigation.setOptions({ headerRight: () => <MenuBtn /> })
+}, [navigation])
+
+// ✅ RICHTIG — Expo Router v5 idiomatisch, immer zuverlässig
+import { Tabs } from 'expo-router'
+
+return (
+  <>
+    <Tabs.Screen options={{ headerRight: () => <MenuBtn onPress={() => setMenuOpen(true)} /> }} />
+    {/* rest of screen */}
+  </>
+)
 ```
+**Lesson:** In Expo Router v5 Header-Optionen die Screen-State benötigen immer via `<Tabs.Screen options>` im JSX setzen — nie via `useNavigation().setOptions()` in `useEffect`.
 
 ### EAS Build sieht keine lokalen Code-Änderungen
 **Lesson:** Jede Codeänderung muss committed + gepusht sein UND ein neuer EAS Build gestartet werden. Änderungen werden im TestFlight-Build erst sichtbar nach `eas build --platform ios --profile production` + `eas submit`. Kein Hot-Reload in Production-Builds.
