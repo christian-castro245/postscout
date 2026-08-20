@@ -168,6 +168,103 @@ const camColor = scanQuality === 'good' ? '#22c55e' : '...'
 
 ---
 
+## Mobile App (Expo / EAS) — Architektur & Wissen
+
+### Stack
+- Expo SDK 53 · React Native 0.79 · React 19 · Expo Router 5
+- Datei: `mobile/` — eigenständiges npm-Projekt mit eigenem `package.json`
+- EAS Build für iOS TestFlight (Managed Workflow, kein `ios/`-Ordner im Repo)
+- EAS Project: `@fid3l72/postklar`, Bundle ID: `de.postklar.app`, Team: `865WV2UH4Z`
+- Supabase-Credentials: in `mobile/.env` (nicht committed), EXPO_PUBLIC_ Prefix
+
+### Kritische Versionsregeln (nie manuell ändern)
+```
+react:              19.0.0        ← SDK 53, NICHT 18.x
+react-native:       0.79.x        ← SDK 53, NICHT 0.76.x
+expo-router:        ~5.x          ← SDK 53, NICHT 4.x
+```
+**Nach JEDER Paketänderung in `mobile/`:** `npx expo install --fix` ausführen.  
+Nie `react`, `react-native` oder `expo-router` manuell pinnen ohne `expo install --fix`.
+
+### app.json Pflicht-Felder
+```json
+{
+  "expo": {
+    "newArchEnabled": false,
+    "ios": {
+      "deploymentTarget": "15.1",
+      "supportsTablet": true
+    },
+    "orientation": "default",
+    "owner": "fid3l72",
+    "extra": {
+      "eas": { "projectId": "b6e8fb5e-e092-4308-8ba3-bb4f74e3b35a" },
+      "router": { "origin": false }
+    }
+  }
+}
+```
+- `newArchEnabled: false` — verhindert `ReactAppDependencyProvider`-Pod-Fehler
+- `deploymentTarget: "15.1"` — React Native 0.76+ Minimum, ohne es schlägt CocoaPods lautlos fehl
+- `owner: "fid3l72"` — von `eas init` gesetzt, muss bleiben
+
+### EAS Build Workflow
+```bash
+cd ~/postscout/mobile
+git pull                          # erst pullen
+npx expo install --fix            # falls package.json geändert
+git add package.json package-lock.json app.json
+git commit -m "..."
+git push
+eas build --platform ios --profile preview
+```
+
+### Bekannte EAS / Pod Fehler & Fixes
+
+**"Install pods — Unknown error"**  
+→ Fast immer Paketversionen falsch. `npx expo install --fix` ausführen.  
+→ Wenn Fehler `ReactAppDependencyProvider`: `newArchEnabled: false` in app.json.  
+→ Wenn Fehler `deploymentTarget`-Konflikt: `"deploymentTarget": "15.1"` in ios-Block.
+
+**Merge-Konflikt in app.json nach git stash pop**  
+Passiert wenn `eas init` lokal läuft und parallel Änderungen remote gepusht wurden.  
+Fix: Conflict-Marker manuell entfernen, beide Seiten mergen (upstream + stash), dann:
+```bash
+git add app.json && git stash drop
+```
+Wichtig: `owner`, `router.origin`, EAS projectId und `deploymentTarget` alle behalten.
+
+**Versionen die `eas init` lokal hinzufügt (gehören in app.json)**
+- `"owner": "fid3l72"`
+- `"extra.router": { "origin": false }`
+- `"extra.eas.projectId": "b6e8fb5e-e092-4308-8ba3-bb4f74e3b35a"`
+
+---
+
+## Next.js / Vercel — Bekannte Fallen
+
+### `serverExternalPackages` ist Next.js 15 Syntax
+In diesem Projekt läuft **Next.js 14.2.x**. Die korrekte Methode um ein Paket vom webpack-Bundling auszuschließen:
+```js
+// next.config.js — RICHTIG für Next.js 14:
+webpack: (config, { isServer }) => {
+  if (isServer) {
+    config.externals = [...(Array.isArray(config.externals) ? config.externals : []), '@aws-sdk/client-bedrock-runtime']
+  }
+  return config
+}
+
+// FALSCH — serverExternalPackages existiert erst in Next.js 15:
+// serverExternalPackages: ['@aws-sdk/client-bedrock-runtime']
+```
+
+### `@aws-sdk/client-bedrock-runtime` muss in dependencies stehen
+Das Paket ist in `lib/analyse/bedrockEu.js` per `await import(...)` geladen.  
+Webpack externalisiert es (wird nicht gebundelt), aber Vercel braucht es in `node_modules`.  
+→ `package.json` (Root): `"@aws-sdk/client-bedrock-runtime": "^3.700.0"` muss drin stehen.
+
+---
+
 ## Offene To-Dos (aus Diskussion bekannt)
 
 - [ ] Bug: signOut() Profil-State nicht zurückgesetzt
