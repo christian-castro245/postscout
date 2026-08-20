@@ -192,7 +192,6 @@ Nie `react`, `react-native` oder `expo-router` manuell pinnen ohne `expo install
   "expo": {
     "newArchEnabled": false,
     "ios": {
-      "deploymentTarget": "15.1",
       "supportsTablet": true
     },
     "orientation": "default",
@@ -205,16 +204,17 @@ Nie `react`, `react-native` oder `expo-router` manuell pinnen ohne `expo install
 }
 ```
 - `newArchEnabled: false` — verhindert `ReactAppDependencyProvider`-Pod-Fehler
-- `deploymentTarget: "15.1"` — React Native 0.76+ Minimum, ohne es schlägt CocoaPods lautlos fehl
+- `deploymentTarget` gehört NICHT in app.json bei Managed Workflow — Expo setzt das selbst; führt zu expo doctor Fehler wenn vorhanden
 - `owner: "fid3l72"` — von `eas init` gesetzt, muss bleiben
 
 ### Xcode 26 / App Store Anforderung (ab April 2026)
 Apple verlangt seit 28. April 2026 Xcode 26 für App Store Uploads.
 - **SDK 54+**: automatisch abgedeckt (default EAS Image = Xcode 26)
-- **SDK 53**: `"image": "macos-sequoia-15.6-xcode-26.2"` in `eas.json` unter `production.ios` setzen
+- **SDK 53**: explizit `"image": "macos-sequoia-15.6-xcode-26.2"` setzen — `"image": "latest"` reicht NICHT, nimmt trotzdem Xcode 16
 - Kompatibilität hängt von den verwendeten Libraries ab — bei Problemen auf SDK 54 upgraden
 - Empfehlung: mittelfristig auf SDK 54 upgraden
 
+eas.json production-Profil muss so aussehen:
 ```json
 "production": {
   "autoIncrement": true,
@@ -224,31 +224,55 @@ Apple verlangt seit 28. April 2026 Xcode 26 für App Store Uploads.
 }
 ```
 
-### EAS Build Workflow
+### App Store Connect — IDs & Credentials
+- ASC App ID: `6803428760`
+- Bundle ID: `de.postklar.app`
+- API Key: `K5JZ75GXPM` ([Expo] EAS Submit KGT_Z7huNA) — auf EAS Servern gespeichert
+- Distribution Cert Serial: `163850FAB84364D3C2AB70167DEFA646` (läuft Aug 2027 ab)
+- TestFlight URL: `https://appstoreconnect.apple.com/apps/6803428760/testflight/ios`
+
+### EAS Build & Submit Workflow (vollständig)
 ```bash
 cd ~/postscout/mobile
-git pull                          # erst pullen
-npx expo install --fix            # falls package.json geändert
-git add package.json package-lock.json app.json
+git pull                               # erst pullen
+npx expo install --fix                 # Pakete auf SDK-Version angleichen
+git add package.json package-lock.json app.json eas.json
 git commit -m "..."
 git push
+
+# Preview (Ad-hoc, kein TestFlight, Entwicklermodus auf iPhone nötig):
 eas build --platform ios --profile preview
+
+# Production (TestFlight / App Store):
+eas build --platform ios --profile production
+eas submit --platform ios              # wähle "Select a build from EAS"
 ```
 
 ### Bekannte EAS / Pod Fehler & Fixes
 
 **"Install pods — Unknown error"**  
-→ Fast immer Paketversionen falsch. `npx expo install --fix` ausführen.  
-→ Wenn Fehler `ReactAppDependencyProvider`: `newArchEnabled: false` in app.json.  
-→ Wenn Fehler `deploymentTarget`-Konflikt: `"deploymentTarget": "15.1"` in ios-Block.
+→ Fast immer falsche Paketversionen. `npx expo install --fix` ausführen.  
+→ Root-Ursache: package.json hatte SDK 52-Pakete (React 18, RN 0.76) obwohl expo SDK 53 braucht React 19 + RN 0.79.  
+→ Wenn Fehler `ReactAppDependencyProvider`: `newArchEnabled: false` in app.json setzen.
+
+**expo doctor Fehler: "should NOT have additional property 'deploymentTarget'"**  
+→ `deploymentTarget` darf NICHT in app.json stehen bei Managed Workflow. Entfernen.
+
+**expo doctor Fehler: "Missing peer dependency expo-constants"**  
+→ `npx expo install expo-constants` ausführen.
+
+**Apple rejects build: ITMS-90725 SDK version issue**  
+→ `"image": "latest"` in eas.json nimmt trotzdem Xcode 16.  
+→ Fix: explizit `"image": "macos-sequoia-15.6-xcode-26.2"` in `eas.json production.ios`.
 
 **Merge-Konflikt in app.json nach git stash pop**  
 Passiert wenn `eas init` lokal läuft und parallel Änderungen remote gepusht wurden.  
-Fix: Conflict-Marker manuell entfernen, beide Seiten mergen (upstream + stash), dann:
+Fix: Conflict-Marker manuell entfernen, beide Seiten mergen, dann:
 ```bash
 git add app.json && git stash drop
 ```
-Wichtig: `owner`, `router.origin`, EAS projectId und `deploymentTarget` alle behalten.
+Wichtig nach Merge behalten: `owner`, `router.origin`, EAS projectId.  
+Nicht behalten: `deploymentTarget` (invalid), Conflict-Marker.
 
 **Versionen die `eas init` lokal hinzufügt (gehören in app.json)**
 - `"owner": "fid3l72"`
