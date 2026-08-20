@@ -16,7 +16,6 @@
       "supportsTablet": true,
       "bundleIdentifier": "de.postklar.app",
       "buildNumber": "1",
-      "deploymentTarget": "15.1",
       "infoPlist": {
         "NSCameraUsageDescription": "Postklar nutzt die Kamera, um Briefe zu fotografieren und zu analysieren.",
         "NSPhotoLibraryUsageDescription": "Postklar kann Fotos aus Ihrer Bibliothek öffnen, um Briefe zu analysieren.",
