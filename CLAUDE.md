@@ -208,6 +208,22 @@ Nie `react`, `react-native` oder `expo-router` manuell pinnen ohne `expo install
 - `deploymentTarget: "15.1"` — React Native 0.76+ Minimum, ohne es schlägt CocoaPods lautlos fehl
 - `owner: "fid3l72"` — von `eas init` gesetzt, muss bleiben
 
+### Xcode 26 / App Store Anforderung (ab April 2026)
+Apple verlangt seit 28. April 2026 Xcode 26 für App Store Uploads.
+- **SDK 54+**: automatisch abgedeckt (default EAS Image = Xcode 26)
+- **SDK 53**: `"image": "macos-sequoia-15.6-xcode-26.2"` in `eas.json` unter `production.ios` setzen
+- Kompatibilität hängt von den verwendeten Libraries ab — bei Problemen auf SDK 54 upgraden
+- Empfehlung: mittelfristig auf SDK 54 upgraden
+
+```json
+"production": {
+  "autoIncrement": true,
+  "ios": {
+    "image": "macos-sequoia-15.6-xcode-26.2"
+  }
+}
+```
+
 ### EAS Build Workflow
 ```bash
 cd ~/postscout/mobile
