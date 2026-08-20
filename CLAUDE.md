@@ -176,6 +176,7 @@ const camColor = scanQuality === 'good' ? '#22c55e' : '...'
 - EAS Build für iOS TestFlight (Managed Workflow, kein `ios/`-Ordner im Repo)
 - EAS Project: `@fid3l72/postklar`, Bundle ID: `de.postklar.app`, Team: `865WV2UH4Z`
 - Supabase-Credentials: in `mobile/.env` (nicht committed), EXPO_PUBLIC_ Prefix
+- **KRITISCH: EAS-Umgebungsvariablen müssen VOR dem ersten Production Build gesetzt werden** (siehe Abschnitt unten)
 
 ### Kritische Versionsregeln (nie manuell ändern)
 ```
@@ -231,6 +232,29 @@ eas.json production-Profil muss so aussehen:
 - Distribution Cert Serial: `163850FAB84364D3C2AB70167DEFA646` (läuft Aug 2027 ab)
 - TestFlight URL: `https://appstoreconnect.apple.com/apps/6803428760/testflight/ios`
 
+### EAS Umgebungsvariablen — PFLICHT vor erstem Build
+
+**.env-Dateien werden NICHT in EAS-Builds übertragen** (gitignored). Ohne diese Variablen stürzt die App sofort beim Start ab.
+
+**Einmalige Einrichtung (lokal in `mobile/`):**
+```bash
+# Neuer Befehl (eas env:create ist deprecated):
+eas env:set --scope project --name EXPO_PUBLIC_SUPABASE_URL --value "https://pcwzmdrfyilmogmvdwet.supabase.co" --environment production
+eas env:set --scope project --name EXPO_PUBLIC_SUPABASE_ANON_KEY --value "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjd3ptZHJmeWlsbW9nbXZkd2V0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0NzU0MzgsImV4cCI6MjA5ODA1MTQzOH0.AfPs5b-IgmnWOrBB7rVAmtXSc1X1Yw5o5QGYQXukw60" --environment production
+eas env:set --scope project --name EXPO_PUBLIC_API_URL --value "https://postscout-beige.vercel.app" --environment production
+```
+Danach prüfen: `eas env:list --scope project`
+
+**Wichtig:**
+- Bei `eas env:create` (deprecated) → wähle "production" im interaktiven Prompt
+- Sichtbarkeit: `plaintext` (nicht secret, da EXPO_PUBLIC_ sowieso im Bundle sichtbar)
+- Nach dem Setzen muss ein neuer Build gestartet werden — bestehende Builds laden keine neuen Env Vars
+- Diese Variablen sind im EAS-Dashboard unter expo.dev sichtbar und editierbar
+
+**Fehler-Absicherung im Code:**
+`mobile/lib/supabase.ts` exportiert `supabaseConfigured: boolean`.
+`mobile/app/_layout.tsx` zeigt roter Fehlerscreen statt Crash wenn Variablen fehlen.
+
 ### EAS Build & Submit Workflow (vollständig)
 ```bash
 cd ~/postscout/mobile
@@ -260,6 +284,12 @@ eas submit --platform ios              # wähle "Select a build from EAS"
 
 **expo doctor Fehler: "Missing peer dependency expo-constants"**  
 → `npx expo install expo-constants` ausführen.
+
+**App stürzt sofort nach Start ab (keine Fehlermeldung)**
+→ Root-Ursache: `EXPO_PUBLIC_SUPABASE_URL` oder `EXPO_PUBLIC_SUPABASE_ANON_KEY` nicht in EAS gesetzt.
+→ `.env`-Dateien sind gitignored → kommen NICHT in den EAS-Build.
+→ Fix: `eas env:set --scope project --environment production --name EXPO_PUBLIC_SUPABASE_URL --value "..."` (und ANON_KEY + API_URL).
+→ Danach zwingend neuen Build starten. Der Code in `lib/supabase.ts` fängt dies jetzt ab: `supabaseConfigured` ist `false` → roter Fehlerscreen statt Crash.
 
 **Apple rejects build: ITMS-90725 SDK version issue**  
 → `"image": "latest"` in eas.json nimmt trotzdem Xcode 16.  
