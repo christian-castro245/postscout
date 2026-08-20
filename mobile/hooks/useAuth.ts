@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Session } from '@supabase/supabase-js'
+import * as AppleAuthentication from 'expo-apple-authentication'
+import * as Crypto from 'expo-crypto'
 import { supabase } from '../lib/supabase'
 
 export interface Profile {
@@ -62,10 +64,33 @@ export function useAuth() {
     })
   }
 
+  async function signInWithApple() {
+    const rawNonce = Array.from({ length: 32 }, () =>
+      Math.floor(Math.random() * 36).toString(36)
+    ).join('')
+    const hashedNonce = await Crypto.digestStringAsync(
+      Crypto.CryptoDigestAlgorithm.SHA256,
+      rawNonce
+    )
+    const credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+      nonce: hashedNonce,
+    })
+    if (!credential.identityToken) throw new Error('Kein Identity Token von Apple erhalten.')
+    return supabase.auth.signInWithIdToken({
+      provider: 'apple',
+      token: credential.identityToken,
+      nonce: rawNonce,
+    })
+  }
+
   async function signOut() {
     await supabase.auth.signOut()
     setProfile(null)
   }
 
-  return { session, loading, profile, greeting, signIn, signUp, signOut, resetPassword }
+  return { session, loading, profile, greeting, signIn, signUp, signOut, resetPassword, signInWithApple }
 }

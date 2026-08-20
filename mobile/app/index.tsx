@@ -3,12 +3,13 @@ import {
   View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView,
   Platform, ActivityIndicator, StyleSheet, ScrollView, Animated,
 } from 'react-native'
+import * as AppleAuthentication from 'expo-apple-authentication'
 import { router } from 'expo-router'
 import { useAuth } from '../hooks/useAuth'
 import { Colors, FontFamily, Spacing, Radius } from '../constants/theme'
 
 export default function AuthScreen() {
-  const { session, loading, signIn, signUp, resetPassword } = useAuth()
+  const { session, loading, signIn, signUp, resetPassword, signInWithApple } = useAuth()
   const [mode, setMode]         = useState<'login' | 'register' | 'reset'>('login')
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
@@ -53,6 +54,20 @@ export default function AuthScreen() {
     if (!/[0-9]/.test(pw))                return 'Mindestens eine Ziffer erforderlich.'
     if (!/[^A-Za-z0-9]/.test(pw))         return 'Mindestens ein Sonderzeichen erforderlich (!@#$%…).'
     return null
+  }
+
+  async function handleAppleSignIn() {
+    setBusy(true)
+    setMsg(null)
+    try {
+      const { error } = await signInWithApple()
+      if (error) setMsg({ text: error.message, err: true })
+    } catch (e: any) {
+      if (e?.code !== 'ERR_REQUEST_CANCELED') {
+        setMsg({ text: 'Apple-Anmeldung fehlgeschlagen. Bitte erneut versuchen.', err: true })
+      }
+    }
+    setBusy(false)
   }
 
   async function handleAuth() {
@@ -190,6 +205,23 @@ export default function AuthScreen() {
             </TouchableOpacity>
           )}
 
+          {mode === 'login' && Platform.OS === 'ios' && (
+            <>
+              <View style={S.orRow}>
+                <View style={S.orLine} />
+                <Text style={S.orLabel}>oder</Text>
+                <View style={S.orLine} />
+              </View>
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                cornerRadius={14}
+                style={S.appleBtn}
+                onPress={handleAppleSignIn}
+              />
+            </>
+          )}
+
           {mode === 'reset' && (
             <TouchableOpacity style={S.forgotBtn} onPress={() => { setMode('login'); setMsg(null) }}>
               <Text style={S.forgotLabel}>Zurück zur Anmeldung</Text>
@@ -279,4 +311,8 @@ const S = StyleSheet.create({
   resetTitle:   { fontFamily: FontFamily.bodyBold, fontSize: 18, color: Colors.ink, marginBottom: 6 },
   resetSub:     { fontFamily: FontFamily.body, fontSize: 14, color: Colors.muted, lineHeight: 20 },
   dsgvo:        { fontFamily: FontFamily.bodyRegular, fontSize: 12, color: 'rgba(255,255,255,0.45)', textAlign: 'center', paddingHorizontal: 28, paddingVertical: 20 },
+  orRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16, marginBottom: 4 },
+  orLine:       { flex: 1, height: 1, backgroundColor: Colors.hairline },
+  orLabel:      { fontFamily: FontFamily.bodyRegular, fontSize: 13, color: Colors.faint },
+  appleBtn:     { height: 50, width: '100%', marginTop: 8 },
 })
