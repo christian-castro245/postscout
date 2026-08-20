@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet, SectionList,
-  RefreshControl, ActivityIndicator, useWindowDimensions,
+  RefreshControl, ActivityIndicator, useWindowDimensions, Animated,
 } from 'react-native'
 import { router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -9,6 +9,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useDocs, Dokument, Todo } from '../../hooks/useDocs'
 import { Colors, FontFamily, Spacing, Radius, DRING, TODO_STATUS } from '../../constants/theme'
 import { formatDate, daysUntil } from '../../lib/dateUtils'
+import { useFadeIn } from '../../hooks/useFadeIn'
 
 type FilterStatus = 'alle' | 'offen' | 'erledigt'
 
@@ -31,6 +32,7 @@ export default function AufgabenScreen() {
   const [statusFilter, setStatusFilter] = useState<FilterStatus>('offen')
   const { width } = useWindowDimensions()
   const hPad = Math.max(Spacing.lg, (width - 720) / 2)
+  const fade = useFadeIn()
 
   async function onRefresh() {
     setRefreshing(true)
@@ -69,7 +71,7 @@ export default function AufgabenScreen() {
   if (!session) return null
 
   return (
-    <View style={S.root}>
+    <Animated.View style={[S.root, { opacity: fade.opacity, transform: [{ translateY: fade.translateY }] }]}>
       {/* Status-Tabs */}
       <View style={[S.tabRow, { paddingHorizontal: hPad }]}>
         {STATUS_TABS.map(tab => (
@@ -117,7 +119,7 @@ export default function AufgabenScreen() {
           />
         )
       }
-    </View>
+    </Animated.View>
   )
 }
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  FlatList, ActivityIndicator, RefreshControl, useWindowDimensions,
+  FlatList, ActivityIndicator, RefreshControl, useWindowDimensions, Animated,
 } from 'react-native'
 import { router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -9,6 +9,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useDocs, Dokument } from '../../hooks/useDocs'
 import { Colors, FontFamily, Spacing, Radius, DRING } from '../../constants/theme'
 import { formatDate } from '../../lib/dateUtils'
+import { useFadeIn } from '../../hooks/useFadeIn'
 
 const KATEGORIEN = ['Alle', 'Behörde', 'Versicherung', 'Bank', 'Vermieter', 'Arzt', 'Arbeit', 'Sonstige']
 const DRING_FILTER = ['Alle', 'ueberfaellig', 'hoch', 'mittel', 'niedrig', 'ignorieren'] as const
@@ -21,6 +22,7 @@ export default function ArchivScreen() {
   const [katFilter, setKatFilter] = useState('Alle')
   const [dringFilter, setDringFilter] = useState('Alle')
   const { width } = useWindowDimensions()
+  const fade = useFadeIn()
 
   useEffect(() => { if (session) load() }, [session])
 
@@ -48,7 +50,7 @@ export default function ArchivScreen() {
   if (!session) return null
 
   return (
-    <View style={S.root}>
+    <Animated.View style={[S.root, { opacity: fade.opacity, transform: [{ translateY: fade.translateY }] }]}>
       {/* Suchleiste */}
       <View style={[S.searchRow, { paddingHorizontal: Math.max(Spacing.lg, (width - 720) / 2) }]}>
         <Ionicons name="search" size={18} color={Colors.faint} style={S.searchIcon} />
@@ -110,7 +112,7 @@ export default function ArchivScreen() {
         }
         renderItem={({ item }) => <ArchivCard dok={item} />}
       />
-    </View>
+    </Animated.View>
   )
 }
 

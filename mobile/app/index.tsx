@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView,
-  Platform, ActivityIndicator, StyleSheet, ScrollView, Alert,
+  Platform, ActivityIndicator, StyleSheet, ScrollView, Animated,
 } from 'react-native'
 import { router } from 'expo-router'
 import { useAuth } from '../hooks/useAuth'
@@ -9,15 +9,34 @@ import { Colors, FontFamily, Spacing, Radius } from '../constants/theme'
 
 export default function AuthScreen() {
   const { session, loading, signIn, signUp } = useAuth()
-  const [mode, setMode]       = useState<'login' | 'register'>('login')
-  const [email, setEmail]     = useState('')
+  const [mode, setMode]         = useState<'login' | 'register'>('login')
+  const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
-  const [busy, setBusy]       = useState(false)
-  const [msg, setMsg]         = useState<{ text: string; err: boolean } | null>(null)
+  const [busy, setBusy]         = useState(false)
+  const [msg, setMsg]           = useState<{ text: string; err: boolean } | null>(null)
+
+  const heroOpacity  = useRef(new Animated.Value(0)).current
+  const heroTranslate = useRef(new Animated.Value(24)).current
+  const cardOpacity  = useRef(new Animated.Value(0)).current
+  const cardTranslate = useRef(new Animated.Value(40)).current
 
   useEffect(() => {
     if (!loading && session) router.replace('/(tabs)/home')
   }, [session, loading])
+
+  useEffect(() => {
+    if (loading) return
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(heroOpacity,   { toValue: 1, duration: 380, useNativeDriver: true }),
+        Animated.timing(heroTranslate, { toValue: 0, duration: 380, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.timing(cardOpacity,   { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.timing(cardTranslate, { toValue: 0, duration: 300, useNativeDriver: true }),
+      ]),
+    ]).start()
+  }, [loading])
 
   if (loading) {
     return (
@@ -27,10 +46,23 @@ export default function AuthScreen() {
     )
   }
 
+  function validatePassword(pw: string): string | null {
+    if (pw.length < 8)                     return 'Mindestens 8 Zeichen erforderlich.'
+    if (!/[A-Z]/.test(pw))                return 'Mindestens ein Großbuchstabe erforderlich.'
+    if (!/[a-z]/.test(pw))                return 'Mindestens ein Kleinbuchstabe erforderlich.'
+    if (!/[0-9]/.test(pw))                return 'Mindestens eine Ziffer erforderlich.'
+    if (!/[^A-Za-z0-9]/.test(pw))         return 'Mindestens ein Sonderzeichen erforderlich (!@#$%…).'
+    return null
+  }
+
   async function handleAuth() {
     if (!email.trim() || !password.trim()) {
       setMsg({ text: 'Bitte E-Mail und Passwort eingeben.', err: true })
       return
+    }
+    if (mode === 'register') {
+      const pwErr = validatePassword(password)
+      if (pwErr) { setMsg({ text: pwErr, err: true }); return }
     }
     setBusy(true); setMsg(null)
     const { error } = mode === 'login'
@@ -52,16 +84,20 @@ export default function AuthScreen() {
     >
       <ScrollView contentContainerStyle={S.scroll} keyboardShouldPersistTaps="handled">
         {/* Hero */}
-        <View style={S.hero}>
+        <Animated.View
+          style={[S.hero, { opacity: heroOpacity, transform: [{ translateY: heroTranslate }] }]}
+        >
           <View style={S.logoMark}>
             <Text style={S.logoIcon}>✉</Text>
           </View>
           <Text style={S.heroTitle}>Postklar</Text>
           <Text style={S.heroSub}>Post, die man versteht.{'\n'}Fristen, die niemand verpasst.</Text>
-        </View>
+        </Animated.View>
 
         {/* Form */}
-        <View style={S.sheet}>
+        <Animated.View
+          style={[S.sheet, { opacity: cardOpacity, transform: [{ translateY: cardTranslate }] }]}
+        >
           <View style={S.tabRow}>
             <TouchableOpacity
               style={[S.tab, mode === 'login' && S.tabActive]}
@@ -107,6 +143,9 @@ export default function AuthScreen() {
               placeholderTextColor={Colors.faint}
               placeholder="••••••••"
             />
+            {mode === 'register' && password.length > 0 && (
+              <PasswordStrength password={password} />
+            )}
           </View>
 
           {msg && (
@@ -121,15 +160,59 @@ export default function AuthScreen() {
               : <Text style={S.btnLabel}>{mode === 'login' ? 'Anmelden' : 'Konto erstellen'}</Text>
             }
           </TouchableOpacity>
-        </View>
+        </Animated.View>
 
-        <Text style={S.dsgvo}>
+        <Animated.Text style={[S.dsgvo, { opacity: cardOpacity }]}>
           Ihre Daten werden ausschließlich auf Servern in Deutschland verarbeitet.
-        </Text>
+        </Animated.Text>
       </ScrollView>
     </KeyboardAvoidingView>
   )
 }
+
+const CHECKS = [
+  { label: 'Mindestens 8 Zeichen',   test: (pw: string) => pw.length >= 8 },
+  { label: 'Großbuchstabe (A–Z)',     test: (pw: string) => /[A-Z]/.test(pw) },
+  { label: 'Kleinbuchstabe (a–z)',    test: (pw: string) => /[a-z]/.test(pw) },
+  { label: 'Ziffer (0–9)',            test: (pw: string) => /[0-9]/.test(pw) },
+  { label: 'Sonderzeichen (!@#$…)',   test: (pw: string) => /[^A-Za-z0-9]/.test(pw) },
+]
+
+function PasswordStrength({ password }: { password: string }) {
+  const passed = CHECKS.filter(c => c.test(password)).length
+  const barColors = ['#B3402C', '#C2410C', '#8A5A12', '#2E7D46', '#1F3A52']
+  return (
+    <View style={P.wrap}>
+      <View style={P.bars}>
+        {CHECKS.map((_, i) => (
+          <View key={i} style={[P.bar, { backgroundColor: i < passed ? barColors[passed - 1] : '#E0DDD3' }]} />
+        ))}
+      </View>
+      <View style={P.checks}>
+        {CHECKS.map(c => {
+          const ok = c.test(password)
+          return (
+            <View key={c.label} style={P.checkRow}>
+              <View style={[P.dot, { backgroundColor: ok ? '#2E7D46' : '#E0DDD3' }]} />
+              <Text style={[P.checkLabel, ok && P.checkLabelOk]}>{c.label}</Text>
+            </View>
+          )
+        })}
+      </View>
+    </View>
+  )
+}
+
+const P = StyleSheet.create({
+  wrap:         { marginTop: 8 },
+  bars:         { flexDirection: 'row', gap: 4, marginBottom: 8 },
+  bar:          { flex: 1, height: 3, borderRadius: 2 },
+  checks:       { gap: 4 },
+  checkRow:     { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dot:          { width: 6, height: 6, borderRadius: 3 },
+  checkLabel:   { fontFamily: 'Inter_400Regular', fontSize: 12, color: '#9A968B' },
+  checkLabelOk: { color: '#2E7D46' },
+})
 
 const S = StyleSheet.create({
   root:       { flex: 1, backgroundColor: Colors.petrol },

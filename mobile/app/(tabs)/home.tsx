@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  RefreshControl, ActivityIndicator,
+  RefreshControl, ActivityIndicator, Animated,
 } from 'react-native'
 import { router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -9,11 +9,13 @@ import { useAuth } from '../../hooks/useAuth'
 import { useDocs, Dokument, Todo } from '../../hooks/useDocs'
 import { Colors, FontFamily, Spacing, Radius, DRING, TODO_STATUS } from '../../constants/theme'
 import { formatDate, daysUntil } from '../../lib/dateUtils'
+import { useFadeIn } from '../../hooks/useFadeIn'
 
 export default function HomeScreen() {
   const { session, greeting, signOut } = useAuth()
   const { docs, loading, load, updateTodoStatus } = useDocs(session?.user.id)
   const [refreshing, setRefreshing] = useState(false)
+  const fade = useFadeIn()
 
   useEffect(() => {
     if (session) load()
@@ -41,8 +43,8 @@ export default function HomeScreen() {
   if (!session) return null
 
   return (
-    <ScrollView
-      style={S.root}
+    <Animated.ScrollView
+      style={[S.root, { opacity: fade.opacity, transform: [{ translateY: fade.translateY }] }]}
       contentContainerStyle={S.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.petrol} />}
     >
@@ -145,7 +147,7 @@ export default function HomeScreen() {
       )}
 
       <View style={{ height: 40 }} />
-    </ScrollView>
+    </Animated.ScrollView>
   )
 }
 
