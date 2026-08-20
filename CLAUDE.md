@@ -153,6 +153,35 @@ const camColor = scanQuality === 'good' ? '#22c55e' : '...'
 ### State nicht bei signOut zurückgesetzt
 **Lesson:** Jedes neue `useState` muss in `signOut()` explizit auf den Default-Wert zurückgesetzt werden.
 
+### `headerRight: () => null` in _layout.tsx killt navigation.setOptions()
+**Fall:** Hamburger-Menü war in `home.tsx` via `navigation.setOptions({ headerRight: ... })` korrekt gesetzt, aber in `_layout.tsx` stand `headerRight: () => null` beim Home-Screen. Bei jedem Tab-Re-Render hat das Layout den Button überschrieben.
+**Fix:** Nie `headerRight: () => null` explizit setzen wenn der Screen den Wert selbst per `setOptions` setzt. Einfach weglassen.
+```tsx
+// ❌ FALSCH — überschreibt setOptions() aus dem Screen bei jedem Re-Render
+<Tabs.Screen name="home" options={{ headerTitle: 'Postklar', headerRight: () => null }} />
+
+// ✅ RICHTIG — Screen setzt headerRight selbst via useNavigation().setOptions()
+<Tabs.Screen name="home" options={{ headerTitle: 'Postklar' }} />
+```
+**Lesson:** `headerRight` nur im `_layout.tsx` setzen ODER nur im Screen via `setOptions` — nie beides, der Layout-Wert gewinnt bei Re-Renders.
+
+### useCallback für Funktionen in navigation.setOptions
+**Lesson:** Callback-Funktionen die an `navigation.setOptions` übergeben werden mit `useCallback` stabilisieren, sonst löst jeder Render ein erneutes `setOptions` aus.
+```tsx
+const openMenu = useCallback(() => setMenuOpen(true), [])
+useEffect(() => {
+  navigation.setOptions({ headerRight: () => <Btn onPress={openMenu} /> })
+}, [navigation, openMenu])
+```
+
+### EAS Build sieht keine lokalen Code-Änderungen
+**Lesson:** Jede Codeänderung muss committed + gepusht sein UND ein neuer EAS Build gestartet werden. Änderungen werden im TestFlight-Build erst sichtbar nach `eas build --platform ios --profile production` + `eas submit`. Kein Hot-Reload in Production-Builds.
+
+### Supabase auth — "invalid login credentials" ≠ falsches Projekt
+**Fall:** Webapp zeigte "invalid login credentials", obwohl dieselben Credentials in der App funktioniert haben. Root-Cause war einfach das falsche Passwort in der Webapp — nicht ein anderer Supabase-Tenant.
+**Diagnosis-Weg:** `query_logs` MCP-Tool auf dem Supabase-Projekt prüfen — wenn fehlgeschlagene Logins dort auftauchen, ist das Projekt korrekt verbunden.
+**Lesson:** Bevor Supabase-Verbindungsprobleme vermutet werden, Logs prüfen. Fehlende "Passwort vergessen"-Funktion ist oft der echte Grund.
+
 ---
 
 ## Kommunikations-Stil (Christian's Präferenzen)
