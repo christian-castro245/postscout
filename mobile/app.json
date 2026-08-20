@@ -60,7 +60,9 @@
     },
     "scheme": "postklar",
     "extra": {
-      "eas": {}
+      "eas": {
+        "projectId": "b6e8fb5e-e092-4308-8ba3-bb4f74e3b35a"
+      }
     }
   }
 }
