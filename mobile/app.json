@@ -20,7 +20,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Postklar nutzt die Kamera, um Briefe zu fotografieren und zu analysieren.",
         "NSPhotoLibraryUsageDescription": "Postklar kann Fotos aus Ihrer Bibliothek öffnen, um Briefe zu analysieren.",
-        "NSMicrophoneUsageDescription": "Für die Kamerafunktion wird gelegentlich auf das Mikrofon zugegriffen."
+        "NSMicrophoneUsageDescription": "Für die Kamerafunktion wird gelegentlich auf das Mikrofon zugegriffen.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -28,7 +29,11 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0F3D47"
       },
-      "package": "de.postklar.app"
+      "package": "de.postklar.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -60,9 +65,13 @@
       "typedRoutes": true
     },
     "scheme": "postklar",
+    "owner": "fid3l72",
     "extra": {
       "eas": {
         "projectId": "b6e8fb5e-e092-4308-8ba3-bb4f74e3b35a"
+      },
+      "router": {
+        "origin": false
       }
     }
   }
