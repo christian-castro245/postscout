@@ -60,6 +60,10 @@ export default function ArchivScreen() {
           placeholderTextColor={Colors.faint}
           clearButtonMode="while-editing"
           returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="off"
+          textContentType="none"
         />
         {suche.length > 0 && (
           <TouchableOpacity onPress={() => setSuche('')}>

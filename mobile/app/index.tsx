@@ -86,6 +86,8 @@ export default function AuthScreen() {
               autoCapitalize="none"
               keyboardType="email-address"
               autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="next"
               placeholderTextColor={Colors.faint}
               placeholder="ihre@email.de"
             />
@@ -99,6 +101,9 @@ export default function AuthScreen() {
               onChangeText={setPassword}
               secureTextEntry
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              textContentType={mode === 'login' ? 'password' : 'newPassword'}
+              returnKeyType="done"
+              onSubmitEditing={handleAuth}
               placeholderTextColor={Colors.faint}
               placeholder="••••••••"
             />

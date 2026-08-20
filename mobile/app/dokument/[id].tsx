@@ -225,6 +225,9 @@ export default function DokumentDetail() {
                 multiline
                 returnKeyType="send"
                 onSubmitEditing={handleErklaer}
+                autoCapitalize="sentences"
+                autoCorrect
+                textContentType="none"
               />
               <TouchableOpacity style={S.aiBtn} onPress={handleErklaer} disabled={aiBusy || !aiFrage.trim()}>
                 {aiBusy ? <ActivityIndicator color="#fff" size="small" /> : <Text style={S.aiBtnLabel}>Fragen</Text>}
@@ -279,6 +282,9 @@ export default function DokumentDetail() {
               placeholderTextColor={Colors.faint}
               multiline
               autoFocus
+              autoCapitalize="sentences"
+              autoCorrect
+              textContentType="none"
             />
             <TouchableOpacity style={[S.aiBtn, { margin: Spacing.lg }]} onPress={handleAddNotiz} disabled={notizBusy || !notizText.trim()}>
               {notizBusy ? <ActivityIndicator color="#fff" size="small" /> : <Text style={S.aiBtnLabel}>Speichern</Text>}

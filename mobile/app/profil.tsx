@@ -210,28 +210,61 @@ function ProfilTab({
       </View>
 
       <FieldGroup>
-        <Field label="Vorname" {...field('vorname')} />
-        <Field label="Nachname" {...field('nachname')} />
+        <Field label="Vorname" {...field('vorname')}
+          autoCapitalize="words"
+          autoComplete="given-name"
+          textContentType="givenName"
+        />
+        <Field label="Nachname" {...field('nachname')}
+          autoCapitalize="words"
+          autoComplete="family-name"
+          textContentType="familyName"
+        />
       </FieldGroup>
 
-      <Field label="E-Mail (nicht änderbar)" value={email} editable={false} />
+      <Field label="E-Mail (nicht änderbar)" value={email} editable={false}
+        keyboardType="email-address"
+        textContentType="emailAddress"
+      />
 
       <FieldGroup>
-        <Field label="Telefon" {...field('telefon')} keyboardType="phone-pad" />
-        <Field label="Geburtsdatum" {...field('geburtsdatum')} placeholder="TT.MM.JJJJ" />
+        <Field label="Telefon" {...field('telefon')}
+          keyboardType="phone-pad"
+          autoComplete="tel"
+          textContentType="telephoneNumber"
+        />
+        <Field label="Geburtsdatum" {...field('geburtsdatum')}
+          placeholder="TT.MM.JJJJ"
+          keyboardType="numbers-and-punctuation"
+          textContentType="birthdate"
+        />
       </FieldGroup>
 
-      <Field label="Straße und Hausnummer" {...field('strasse')} />
+      <Field label="Straße und Hausnummer" {...field('strasse')}
+        autoCapitalize="words"
+        autoComplete="street-address"
+        textContentType="streetAddressLine1"
+      />
       <FieldGroup>
-        <Field label="PLZ" {...field('plz')} keyboardType="numeric" flex={0.35} />
-        <Field label="Ort" {...field('ort')} flex={0.65} />
+        <Field label="PLZ" {...field('plz')}
+          keyboardType="numeric"
+          autoComplete="postal-code"
+          textContentType="postalCode"
+          flex={0.35}
+        />
+        <Field label="Ort" {...field('ort')}
+          autoCapitalize="words"
+          autoComplete="address-level2"
+          textContentType="addressCity"
+          flex={0.65}
+        />
       </FieldGroup>
 
       <Text style={[S.fieldLabel, { marginTop: 16 }]}>Bankverbindung</Text>
-      <Field label="Bank" {...field('bank_name')} />
-      <Field label="IBAN" {...field('iban')} autoCapitalize="characters" />
-      <Field label="BIC" {...field('bic')} autoCapitalize="characters" />
-      <Field label="Steuer-ID" {...field('steuer_id')} />
+      <Field label="Bank" {...field('bank_name')} autoCapitalize="words" />
+      <Field label="IBAN" {...field('iban')} autoCapitalize="characters" autoComplete="off" textContentType="none" />
+      <Field label="BIC" {...field('bic')} autoCapitalize="characters" autoComplete="off" textContentType="none" />
+      <Field label="Steuer-ID" {...field('steuer_id')} autoComplete="off" textContentType="none" />
 
       <TouchableOpacity style={[S.saveBtn, saved && S.saveBtnDone]} onPress={onSave} disabled={busy}>
         {busy
@@ -310,7 +343,7 @@ function FieldGroup({ children }: { children: React.ReactNode }) {
 }
 
 function Field({
-  label, value, onChangeText, placeholder, keyboardType, autoCapitalize, editable, flex,
+  label, value, onChangeText, placeholder, keyboardType, autoCapitalize, autoComplete, textContentType, editable, flex,
 }: {
   label: string
   value: string
@@ -318,6 +351,8 @@ function Field({
   placeholder?: string
   keyboardType?: any
   autoCapitalize?: any
+  autoComplete?: any
+  textContentType?: any
   editable?: boolean
   flex?: number
 }) {
@@ -332,6 +367,8 @@ function Field({
         placeholderTextColor={Colors.faint}
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
+        autoComplete={autoComplete}
+        textContentType={textContentType}
         editable={editable !== false}
       />
     </View>
