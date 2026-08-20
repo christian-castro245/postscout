@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   RefreshControl, ActivityIndicator, Animated, Modal,
   Pressable, Platform,
 } from 'react-native'
-import { router, useNavigation } from 'expo-router'
+import { Tabs, router } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuth } from '../../hooks/useAuth'
 import { useDocs, Dokument, Todo } from '../../hooks/useDocs'
@@ -18,23 +18,6 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const fade = useFadeIn()
-  const navigation = useNavigation()
-
-  const openMenu = useCallback(() => setMenuOpen(true), [])
-
-  useEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <TouchableOpacity
-          onPress={openMenu}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          style={{ marginRight: 16 }}
-        >
-          <Ionicons name="menu" size={26} color="#fff" />
-        </TouchableOpacity>
-      ),
-    })
-  }, [navigation, openMenu])
 
   useEffect(() => {
     if (session) load()
@@ -62,6 +45,19 @@ export default function HomeScreen() {
 
   return (
     <>
+      <Tabs.Screen
+        options={{
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={() => setMenuOpen(true)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={{ marginRight: 16 }}
+            >
+              <Ionicons name="menu" size={26} color="#fff" />
+            </TouchableOpacity>
+          ),
+        }}
+      />
       <Animated.ScrollView
         style={[S.root, { opacity: fade.opacity, transform: [{ translateY: fade.translateY }] }]}
         contentContainerStyle={S.content}
